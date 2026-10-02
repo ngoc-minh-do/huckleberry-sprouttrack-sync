@@ -73,9 +73,12 @@ class HuckleberryReader:
         client = await self._api._get_firestore_client()
         child = self._child_uid
 
-        earliest = datetime.combine(start, time(0, 0), tzinfo=self.config.timezone).timestamp() - 24 * 3600
+        # Scope exactly to the requested days in the configured timezone: a
+        # sleep always belongs to the calendar day it *started* on, even when
+        # it crosses midnight (handled by the 20:22 -> 05:30 night sleep case).
+        earliest = datetime.combine(start, time(0, 0), tzinfo=self.config.timezone).timestamp()
         latest = datetime.combine(end, time(0, 0), tzinfo=self.config.timezone) + timedelta(days=1)
-        latest = latest.timestamp() + 24 * 3600
+        latest = latest.timestamp()
 
         records: list[HbRecord] = []
         for top, sub in _COLLECTIONS:

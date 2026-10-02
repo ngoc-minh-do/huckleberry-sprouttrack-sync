@@ -82,7 +82,7 @@ async def sync_day(
     await reader.connect(child=child)
     try:
         baby_id = await sprout.resolve_baby_id()
-        unit = _resolve_unit(cfg, sprout, baby_id)
+        unit = await _resolve_unit(cfg, sprout, baby_id)
         medicines = await _resolve_medicines(cfg, sprout, baby_id)
 
         records = await reader.read_day(day)
@@ -151,7 +151,7 @@ async def backfill(
     result = BackfillResult(start=start, end=day_end, dry_run=effective_dry_run)
     try:
         baby_id = await sprout.resolve_baby_id()
-        unit = _resolve_unit(cfg, sprout, baby_id)
+        unit = await _resolve_unit(cfg, sprout, baby_id)
         medicines = await _resolve_medicines(cfg, sprout, baby_id)
 
         records = await reader.read_range(start, day_end)
@@ -179,7 +179,7 @@ async def backfill(
                 continue
             try:
                 applied = await _apply(
-                    sprout, baby_id, per_day_events, existing, date_day, cfg, dry_run=effective_dry_run
+                    sprout, baby_id, per_day_events, existing, cfg, dry_run=effective_dry_run
                 )
                 result.planned += len(per_day_events)
                 result.written += applied.written
@@ -212,9 +212,13 @@ async def backfill(
 
 async def _resolve_medicines(cfg: Config, sprout: SproutClient, baby_id: str) -> dict[str, dict]:
     """Name lookup (lowercased) -> {"name", "isSupplement"} for the family's
-    medicines and supplements, from GET /reference?type=medicines."""
+    medicines and supplements, from GET /reference.
+
+    The unfiltered reference is used: ?type=medicines returns only the
+    non-supplement list, so supplements would be missed otherwise.
+    """
     try:
-        reference = await sprout.get_reference(baby_id, "medicines")
+        reference = await sprout.get_reference(baby_id)
     except Exception as exc:
         _LOGGER.warning("Could not fetch Sprout Track medicine reference: %s", exc)
         return {}
