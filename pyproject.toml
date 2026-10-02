@@ -1,0 +1,39 @@
+[project]
+name = "huckleberry-sprouttrack-sync"
+version = "0.1.0"
+description = "Sync baby tracking data from Huckleberry into a self-hosted Sprout Track instance via its webhook API."
+requires-python = ">=3.14"
+dependencies = [
+    "huckleberry-api>=0.4.7",
+    "aiohttp>=3.10",
+    "python-dotenv>=1.0",
+    "tzdata>=2024.1",
+]
+
+[project.scripts]
+hb-st-sync = "huckleberry_sprout_sync.__main__:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11",
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/huckleberry_sprout_sync"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/huckleberry_sprout_sync"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
