@@ -20,7 +20,7 @@ from .state import SyncState
 
 _LOGGER = logging.getLogger(__name__)
 
-_WRITE_TYPES = ("feed", "sleep", "diaper", "play", "bath", "measurement")
+_WRITE_TYPES = ("feed", "sleep", "diaper", "play", "bath", "measurement", "pump", "medicine", "supplement")
 
 
 @dataclass
@@ -83,9 +83,10 @@ async def sync_day(
     try:
         baby_id = await sprout.resolve_baby_id()
         unit = _resolve_unit(cfg, sprout, baby_id)
+        medicines = await _resolve_medicines(cfg, sprout, baby_id)
 
         records = await reader.read_day(day)
-        events = plan_events(records, cfg, resolved_unit=unit)
+        events = plan_events(records, cfg, resolved_unit=unit, medicines=medicines)
         counts = _kind_counts(records)
         result = SyncResult(
             day=day,
@@ -151,6 +152,7 @@ async def backfill(
     try:
         baby_id = await sprout.resolve_baby_id()
         unit = _resolve_unit(cfg, sprout, baby_id)
+        medicines = await _resolve_medicines(cfg, sprout, baby_id)
 
         records = await reader.read_range(start, day_end)
         result.records = len(records)
@@ -172,7 +174,7 @@ async def backfill(
                 _LOGGER.info("Skip %s (already synced)", date_day)
                 result.days_skipped += 1
                 continue
-            per_day_events = plan_events(by_day[date_day], cfg, resolved_unit=unit)
+            per_day_events = plan_events(by_day[date_day], cfg, resolved_unit=unit, medicines=medicines)
             if not per_day_events:
                 continue
             try:
@@ -206,6 +208,29 @@ async def backfill(
     finally:
         await reader.close()
         await sprout.close()
+
+
+async def _resolve_medicines(cfg: Config, sprout: SproutClient, baby_id: str) -> dict[str, dict]:
+    """Name lookup (lowercased) -> {"name", "isSupplement"} for the family's
+    medicines and supplements, from GET /reference?type=medicines."""
+    try:
+        reference = await sprout.get_reference(baby_id, "medicines")
+    except Exception as exc:
+        _LOGGER.warning("Could not fetch Sprout Track medicine reference: %s", exc)
+        return {}
+    medicines: dict[str, dict] = {}
+    for entry in reference.get("medicines") or []:
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        medicines[name.lower()] = {"name": name, "isSupplement": bool(entry.get("isSupplement"))}
+    for entry in reference.get("supplements") or []:
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            continue
+        medicines.setdefault(name.lower(), {"name": name, "isSupplement": True})
+    _LOGGER.info("Sprout Track medicine/supplement reference: %d entries", len(medicines))
+    return medicines
 
 
 async def _resolve_unit(cfg: Config, sprout: SproutClient, baby_id: str) -> str | None:

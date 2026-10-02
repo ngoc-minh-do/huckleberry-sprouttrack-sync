@@ -29,6 +29,9 @@ class Config:
     sync_diaper: bool
     sync_activity: bool
     sync_temperature: bool
+    sync_pump: bool
+    sync_growth: bool
+    sync_medication: bool
     night_start_hour: int
     dedup_window_minutes: int
     dedup_since_days: int
@@ -108,6 +111,9 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
         sync_diaper=_parse_bool(os.environ.get("SYNC_DIAPER"), True),
         sync_activity=_parse_bool(os.environ.get("SYNC_ACTIVITY"), True),
         sync_temperature=_parse_bool(os.environ.get("SYNC_TEMPERATURE"), True),
+        sync_pump=_parse_bool(os.environ.get("SYNC_PUMP"), True),
+        sync_growth=_parse_bool(os.environ.get("SYNC_GROWTH"), True),
+        sync_medication=_parse_bool(os.environ.get("SYNC_MEDICATION"), True),
         night_start_hour=_parse_int(os.environ.get("NIGHT_START_HOUR"), 20),
         dedup_window_minutes=_parse_int(os.environ.get("DEDUP_WINDOW_MINUTES"), 15),
         dedup_since_days=_parse_int(os.environ.get("DEDUP_SINCE_DAYS"), 7),

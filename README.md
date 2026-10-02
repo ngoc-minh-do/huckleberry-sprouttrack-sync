@@ -26,16 +26,26 @@ it makes Huckleberry the source of truth that also feeds Sprout Track.
 | activities | `play` (`TUMMY_TIME`/`INDOOR_PLAY`/`OUTDOOR_PLAY`/`CUSTOM`) |
 | bath activity | `bath` (`Full Bath`) |
 | temperature | `measurement` `TEMPERATURE` |
+| pump | `pump` `log` (left/right or total amounts + unit, duration) |
+| growth (weight/height/head) | `measurement` `WEIGHT`/`HEIGHT`/`HEAD_CIRCUMFERENCE` |
+| medication | `medicine`/`supplement` — only names already configured under **Settings → Medicines** in Sprout Track; unknown names are skipped |
 
 Sleep durations are rounded to whole minutes (the webhook API only accepts a
 `duration` in minutes and derives `endTime` from the `time` you send). Sleeps
 that *start* at or after `NIGHT_START_HOUR` (default 20:00) are typed
 `NIGHT_SLEEP`, earlier ones `NAP`.
 
+Medication doses are matched case-insensitively against the family's medicine
+reference (`GET /reference?type=medicines`); a dose whose name isn't configured
+is left out (run `hb-st-sync sprout-info` to see which names are available).
+Doses with `ml`/`oz` units are converted to the family unit like bottles; other
+units (`tsp`, `drops`, …) are sent without a unit so Sprout falls back to the
+medicine's own configured unit.
+
 ## How it works
 
 1. **Read** — log in to Huckleberry and stream the `feed`/`sleep`/`activities`/
-   `diaper`/`health` interval subcollections for the target day(s) from
+   `diaper`/`health`/`pump` interval subcollections for the target day(s) from
    Firestore, normalizing rows into records.
 2. **Map** — records become Sprout Track webhook payloads (see table above).
    Bottle amounts are converted from Huckleberry's stored unit to the Sprout
@@ -129,6 +139,9 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `SYNC_DIAPER` | no | `true` | Sync diapers |
 | `SYNC_ACTIVITY` | no | `true` | Sync play + bath activities |
 | `SYNC_TEMPERATURE` | no | `true` | Sync temperatures as measurements |
+| `SYNC_PUMP` | no | `true` | Sync pump sessions (left/right or total, duration) |
+| `SYNC_GROWTH` | no | `true` | Sync weight/height/head measurements |
+| `SYNC_MEDICATION` | no | `true` | Sync medications matching Sprout-configured names |
 | `SPROUT_UNIT` | no | `ML` | Volume unit to send; must be configured in the family (`ML`/`OZ`) |
 | `NIGHT_START_HOUR` | no | `20` | Sleeps starting at/after this hour are `NIGHT_SLEEP` |
 | `DEDUP_WINDOW_MINUTES` | no | `15` | Skip if matching Sprout Track activity exists within this window |

@@ -34,6 +34,9 @@ def make_config(**overrides) -> Config:
         "sync_diaper": True,
         "sync_activity": True,
         "sync_temperature": True,
+        "sync_pump": True,
+        "sync_growth": True,
+        "sync_medication": True,
         "night_start_hour": 20,
         "dedup_window_minutes": 15,
         "dedup_since_days": 7,
@@ -67,9 +70,10 @@ def test_resolve_target_unit_falls_back_on_unconfigured_unit():
 
 def test_convert_amount():
     assert convert_amount(160, "ml", "ML") == 160
-    assert convert_amount(160, "ml", "OZ") == 5.4
+    assert convert_amount(160, "ml", "OZ") == round(160 / 29.5735, 2)
     assert convert_amount(5.4, "oz", "ML") == 160
     assert convert_amount(3, "oz", "OZ") == 3
+    assert convert_amount(1.25, "ml", "ML") == 1.25
     assert convert_amount(None, "ml", "ML") is None
 
 
@@ -159,7 +163,16 @@ def test_plan_temperature():
 
 
 def test_sync_toggles():
-    cfg = make_config(sync_feed=False, sync_diaper=False, sync_activity=False, sync_temperature=False, sync_sleep=True)
+    cfg = make_config(
+        sync_feed=False,
+        sync_diaper=False,
+        sync_activity=False,
+        sync_temperature=False,
+        sync_pump=False,
+        sync_growth=False,
+        sync_medication=False,
+        sync_sleep=True,
+    )
     records = [
         HbRecord(kind="bottle", start=at(12), payload={"bottle_type": "Formula", "amount": 160, "units": "ml"}),
         HbRecord(kind="diaper", start=at(8), payload={"mode": "pee"}),
@@ -167,6 +180,84 @@ def test_sync_toggles():
     ]
     events = plan_events(records, cfg, resolved_unit="ML")
     assert [event.sprout_type for event in events] == ["sleep"]
+
+
+def test_plan_pump_leftright():
+    cfg = make_config()
+    record = HbRecord(
+        kind="pump",
+        start=at(6, 30),
+        end=at(6, 50),
+        payload={"entry_mode": "leftright", "left_amount": 60, "right_amount": 70, "units": "ml"},
+    )
+    events = plan_events([record], cfg, resolved_unit="ML")
+    assert len(events) == 1
+    payload = events[0].payload
+    assert payload["type"] == "pump"
+    assert payload["leftAmount"] == 60
+    assert payload["rightAmount"] == 70
+    assert payload["unitAbbr"] == "ML"
+    assert payload["duration"] == 20
+    assert planned_key(events[0]) == ("pump", "pump")
+
+
+def test_plan_pump_total():
+    cfg = make_config()
+    record = HbRecord(
+        kind="pump",
+        start=at(6, 30),
+        payload={"entry_mode": "total", "left_amount": 75, "right_amount": 75, "units": "ml"},
+    )
+    events = plan_events([record], cfg, resolved_unit="OZ")
+    payload = events[0].payload
+    assert "leftAmount" not in payload and "rightAmount" not in payload
+    assert payload["totalAmount"] == round(150 / 29.5735, 2)
+    assert payload["unitAbbr"] == "OZ"
+
+
+def test_plan_growth():
+    cfg = make_config()
+    record = HbRecord(
+        kind="growth",
+        start=at(10, 0),
+        payload={"weight": 8.2, "weight_units": "kg", "height": 68, "height_units": "cm"},
+    )
+    events = plan_events([record], cfg, resolved_unit="ML")
+    by_type = {event.kind: event for event in events}
+    assert set(by_type) == {"WEIGHT", "HEIGHT"}
+    assert by_type["WEIGHT"].payload["value"] == 8.2
+    assert by_type["WEIGHT"].payload["unit"] == "KG"
+    assert by_type["HEIGHT"].payload["unit"] == "CM"
+    assert planned_key(by_type["WEIGHT"]) == ("measurement", "WEIGHT")
+
+
+def test_plan_medication_matched_and_skipped():
+    cfg = make_config()
+    medicines = {
+        "infant tylenol": {"name": "Infant Tylenol", "isSupplement": False},
+        "vitamin d drops": {"name": "Vitamin D Drops", "isSupplement": True},
+    }
+    matched = HbRecord(
+        kind="medication", start=at(9, 0), payload={"name": "Infant Tylenol", "amount": 1.25, "units": "ml"}
+    )
+    supplement = HbRecord(
+        kind="medication", start=at(9, 30), payload={"name": "Vitamin D Drops", "amount": 1, "units": "ml"}
+    )
+    unknown = HbRecord(kind="medication", start=at(10, 0), payload={"name": "Cough Syrup", "amount": 5, "units": "ml"})
+    events = plan_events([matched, supplement, unknown], cfg, resolved_unit="ML", medicines=medicines)
+    by_type = {event.sprout_type: event for event in events}
+    assert by_type["medicine"].payload["medicineName"] == "Infant Tylenol"
+    assert by_type["medicine"].payload["amount"] == 1.25
+    assert by_type["medicine"].payload["unitAbbr"] == "ML"
+    assert by_type["supplement"].payload["supplementName"] == "Vitamin D Drops"
+    assert len(events) == 2
+
+
+def test_temperature_kind_is_measurement_subtype():
+    cfg = make_config()
+    record = HbRecord(kind="temperature", start=at(7, 0), payload={"amount": 36.5, "units": "C"})
+    events = plan_events([record], cfg, resolved_unit="ML")
+    assert planned_key(events[0]) == ("measurement", "TEMPERATURE")
 
 
 def test_reader_entry_normalization():
@@ -191,4 +282,28 @@ def test_reader_entry_normalization():
     )
     assert temp.kind == "temperature"
 
-    assert reader._to_record("health", {"mode": "growth", "start": 1699177500, "weight": 3}, 1699177500) is None
+    growth = reader._to_record("health", {"mode": "growth", "start": 1699177500, "weight": 3}, 1699177500)
+    assert growth.kind == "growth"
+    assert growth.payload["weight"] == 3
+
+    pump = reader._to_record(
+        "pump",
+        {
+            "start": 1699177500,
+            "duration": 600,
+            "entryMode": "leftright",
+            "leftAmount": 60,
+            "rightAmount": 70,
+            "units": "ml",
+        },
+        1699177500,
+    )
+    assert pump.kind == "pump"
+    assert (pump.end - pump.start).total_seconds() == 600
+
+    medication = reader._to_record(
+        "health",
+        {"mode": "medication", "start": 1699177500, "medication_name": "Infant Tylenol", "amount": 1.25, "units": "ml"},
+        1699177500,
+    )
+    assert medication.kind == "medication"

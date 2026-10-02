@@ -76,6 +76,18 @@ FEED_TYPE_DETAIL: dict[str, str] = {
     "breast": "BREAST",
 }
 
+# Huckleberry measurement unit -> Sprout Track measurement unit labels.
+GROWTH_UNITS: dict[str, str] = {
+    "kg": "KG",
+    "lbs.oz": "LB",
+    "cm": "CM",
+    "ft.in": "IN",
+    "hcm": "CM",
+    "hin": "IN",
+}
+
+MedicineReference = dict[str, dict]
+
 
 def resolve_target_unit(cfg: Config, available_units: list[str] | None) -> str | None:
     """Pick the Sprout Track unitAbbr to send volumes in.
@@ -98,21 +110,22 @@ def resolve_target_unit(cfg: Config, available_units: list[str] | None) -> str |
 
 
 def convert_amount(amount, from_unit: str | None, to_unit: str | None) -> float | int | None:
-    if amount is None:
-        return None
-    if to_unit is None or from_unit is None:
+    if amount is None or to_unit is None or from_unit is None:
         return amount
-    if from_unit.strip().lower() == to_unit.lower():
-        value = amount
-    elif from_unit.strip().lower() == "ml":
-        value = amount / OZ_TO_ML
-    elif from_unit.strip().lower() == "oz":
-        value = amount * OZ_TO_ML
+    source = from_unit.strip().lower()
+    if source == to_unit.lower():
+        # Already in the target unit: keep the stored value exactly (e.g. a
+        # 1.25 ml medication dose must not be rounded away).
+        return amount
+    if source == "ml":
+        amount = amount / OZ_TO_ML
+    elif source == "oz":
+        amount = amount * OZ_TO_ML
     else:
         return amount
     if to_unit == "ML":
-        return int(round(value))
-    return round(value, 1)
+        return int(round(amount))
+    return round(amount, 2)
 
 
 def plan_events(
@@ -120,17 +133,22 @@ def plan_events(
     cfg: Config,
     *,
     resolved_unit: str | None,
+    medicines: MedicineReference | None = None,
 ) -> list[PlannedEvent]:
     events: list[PlannedEvent] = []
     for record in records:
-        event = _plan_one(record, cfg, resolved_unit)
-        if event is not None:
-            events.append(event)
+        planned = _plan_one(record, cfg, resolved_unit, medicines)
+        if isinstance(planned, list):
+            events.extend(planned)
+        elif planned is not None:
+            events.append(planned)
     events.sort(key=lambda event: (event.time, event.sprout_type))
     return events
 
 
-def _plan_one(record: HbRecord, cfg: Config, resolved_unit: str | None) -> PlannedEvent | None:
+def _plan_one(
+    record: HbRecord, cfg: Config, resolved_unit: str | None, medicines: MedicineReference | None
+) -> PlannedEvent | list[PlannedEvent] | None:
     kind = record.kind
     if kind == "bottle":
         return _plan_bottle(record, cfg, resolved_unit)
@@ -148,6 +166,12 @@ def _plan_one(record: HbRecord, cfg: Config, resolved_unit: str | None) -> Plann
         return _plan_play(record, cfg)
     if kind == "temperature":
         return _plan_temperature(record, cfg)
+    if kind == "pump":
+        return _plan_pump(record, cfg, resolved_unit)
+    if kind == "growth":
+        return _plan_growth(record, cfg)
+    if kind == "medication":
+        return _plan_medication(record, cfg, resolved_unit, medicines)
     _LOGGER.info("Ignoring unknown Huckleberry record kind %s at %s", kind, record.start)
     return None
 
@@ -366,18 +390,142 @@ def _plan_temperature(record: HbRecord, cfg: Config) -> PlannedEvent | None:
         payload["notes"] = notes
     return PlannedEvent(
         sprout_type="measurement",
-        kind="measurement",
+        kind="TEMPERATURE",
         time=record.start,
         payload=payload,
         summary=f"temp {amount}{units}",
     )
 
 
+def _plan_pump(record: HbRecord, cfg: Config, resolved_unit: str | None) -> PlannedEvent | None:
+    if not cfg.sync_pump:
+        return None
+    left = record.payload.get("left_amount")
+    right = record.payload.get("right_amount")
+    units = record.payload.get("units") or "ml"
+    payload: dict = {
+        "type": "pump",
+        "action": "log",
+        "time": record.start.isoformat(),
+    }
+    duration_min = _duration_minutes(record)
+    if duration_min:
+        payload["duration"] = duration_min
+    if record.payload.get("entry_mode") == "total":
+        total = convert_amount((left or 0) + (right or 0), units, resolved_unit)
+        if total is not None:
+            payload["totalAmount"] = total
+            payload["unitAbbr"] = resolved_unit
+    else:
+        converted_left = convert_amount(left, units, resolved_unit)
+        converted_right = convert_amount(right, units, resolved_unit)
+        if converted_left is not None or converted_right is not None:
+            payload["leftAmount"] = converted_left
+            payload["rightAmount"] = converted_right
+            payload["unitAbbr"] = resolved_unit
+    notes = _summary(record.payload.get("notes"))
+    if notes:
+        payload["notes"] = notes
+    total_label = payload.get("totalAmount") or (
+        f"{payload.get('leftAmount')}/{payload.get('rightAmount')}" if "leftAmount" in payload else "?"
+    )
+    duration_label = f" {duration_min}min" if duration_min else ""
+    return PlannedEvent(
+        sprout_type="pump",
+        kind="pump",
+        time=record.start,
+        payload=payload,
+        summary=f"pump {total_label}{resolved_unit or ''}{duration_label}",
+    )
+
+
+def _plan_growth(record: HbRecord, cfg: Config) -> list[PlannedEvent] | None:
+    if not cfg.sync_growth:
+        return None
+    events: list[PlannedEvent] = []
+    for field, measurement_type, unit_key in (
+        ("weight", "WEIGHT", "weight_units"),
+        ("height", "HEIGHT", "height_units"),
+        ("head", "HEAD_CIRCUMFERENCE", "head_units"),
+    ):
+        value = record.payload.get(field)
+        if value is None:
+            continue
+        unit = GROWTH_UNITS.get(record.payload.get(unit_key) or "")
+        payload: dict = {
+            "type": "measurement",
+            "measurementType": measurement_type,
+            "time": record.start.isoformat(),
+            "value": value,
+        }
+        if unit:
+            payload["unit"] = unit
+        events.append(
+            PlannedEvent(
+                sprout_type="measurement",
+                kind=measurement_type,
+                time=record.start,
+                payload=payload,
+                summary=f"{measurement_type.lower()} {value}{unit or ''}",
+            )
+        )
+    return events if events else None
+
+
+def _plan_medication(
+    record: HbRecord, cfg: Config, resolved_unit: str | None, medicines: MedicineReference | None
+) -> PlannedEvent | None:
+    if not cfg.sync_medication:
+        return None
+    name = (record.payload.get("name") or "").strip()
+    if not name:
+        return None
+    reference = (medicines or {}).get(name.lower())
+    if reference is None:
+        _LOGGER.info(
+            "Skipping Huckleberry medication %r at %s: not configured in Sprout Track (see GET /reference)",
+            name,
+            record.start,
+        )
+        return None
+    is_supplement = bool(reference.get("isSupplement"))
+    sprout_type = "supplement" if is_supplement else "medicine"
+    payload: dict = {
+        "type": sprout_type,
+        "time": record.start.isoformat(),
+    }
+    payload["medicineName" if sprout_type == "medicine" else "supplementName"] = reference.get("name") or name
+    amount = record.payload.get("amount")
+    if amount is None:
+        return None
+    units = (record.payload.get("units") or "").strip().lower()
+    if units in {"ml", "oz"}:
+        payload["amount"] = convert_amount(amount, units, resolved_unit)
+        if resolved_unit:
+            payload["unitAbbr"] = resolved_unit
+    else:
+        # tsp/drops etc.: Sprout Track only resolves family units; fall back to
+        # the medicine's own configured unit by omitting unitAbbr.
+        payload["amount"] = amount
+    notes = _summary(record.payload.get("notes"))
+    if notes:
+        payload["notes"] = notes
+    return PlannedEvent(
+        sprout_type=sprout_type,  # type: ignore[arg-type]
+        kind=sprout_type,
+        time=record.start,
+        payload=payload,
+        summary=f"{sprout_type}: {name} {amount}{units or ''}",
+    )
+
+
 def planned_key(event: PlannedEvent) -> tuple[str, str]:
     """Dedupe identity: (Sprout activity type[, subtype]) so bottles and solids
-    at the same time still both sync."""
+    or multiple measurement kinds at the same time still all sync."""
     if event.sprout_type == "feed":
         return ("feed", FEED_TYPE_DETAIL.get(event.kind, "feed"))
+    if event.sprout_type == "measurement":
+        return ("measurement", event.kind or "measurement")
     return (event.sprout_type, event.sprout_type)
 
 
@@ -385,8 +533,8 @@ def existing_key(activity: dict) -> tuple[str, str]:
     """Dedupe identity for an activity already in Sprout Track."""
     activity_type = activity.get("activityType")
     details = activity.get("details") or {}
-    if activity_type == "feed":
-        return ("feed", details.get("type") or "feed")
+    if activity_type in {"feed", "measurement"}:
+        return (activity_type, details.get("type") or activity_type)
     return (activity_type or "", activity_type or "")
 
 

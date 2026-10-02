@@ -17,6 +17,7 @@ _COLLECTIONS: list[tuple[str, str]] = [
     ("activities", "intervals"),
     ("diaper", "intervals"),
     ("health", "data"),
+    ("pump", "intervals"),
 ]
 
 
@@ -199,6 +200,44 @@ class HuckleberryReader:
                 payload={
                     "amount": self._as_number(entry.get("amount")),
                     "units": entry.get("units", "C"),
+                    "notes": entry.get("notes"),
+                },
+            )
+        if top == "health" and mode == "growth":
+            start, _ = self._started(start_sec, duration_sec=None)
+            payload = {
+                "weight": self._as_number(entry.get("weight")),
+                "weight_units": entry.get("weightUnits"),
+                "height": self._as_number(entry.get("height")),
+                "height_units": entry.get("heightUnits"),
+                "head": self._as_number(entry.get("head")),
+                "head_units": entry.get("headUnits"),
+            }
+            return HbRecord(kind="growth", start=start, payload=payload)
+        if top == "health" and mode == "medication":
+            start, _ = self._started(start_sec, duration_sec=None)
+            return HbRecord(
+                kind="medication",
+                start=start,
+                payload={
+                    "name": entry.get("medication_name"),
+                    "amount": self._as_number(entry.get("amount")),
+                    "units": entry.get("units"),
+                    "notes": entry.get("notes"),
+                },
+            )
+        if top == "pump":
+            duration_sec = self._as_number(entry.get("duration"))
+            start, end = self._started(start_sec, duration_sec=duration_sec)
+            return HbRecord(
+                kind="pump",
+                start=start,
+                end=end,
+                payload={
+                    "entry_mode": entry.get("entryMode", "leftright"),
+                    "left_amount": self._as_number(entry.get("leftAmount")),
+                    "right_amount": self._as_number(entry.get("rightAmount")),
+                    "units": entry.get("units", "ml"),
                     "notes": entry.get("notes"),
                 },
             )

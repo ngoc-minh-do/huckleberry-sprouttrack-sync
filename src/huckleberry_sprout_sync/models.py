@@ -4,9 +4,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-HuckleberryKind = Literal["bottle", "solids", "breast", "sleep", "diaper", "activity", "bath", "temperature"]
+HuckleberryKind = Literal[
+    "bottle", "solids", "breast", "sleep", "diaper", "activity", "bath", "temperature", "pump", "growth", "medication"
+]
 
-SproutType = Literal["feed", "diaper", "sleep", "play", "bath", "note", "measurement"]
+SproutType = Literal["feed", "diaper", "sleep", "play", "bath", "note", "measurement", "pump", "medicine", "supplement"]
 
 
 @dataclass(frozen=True)
