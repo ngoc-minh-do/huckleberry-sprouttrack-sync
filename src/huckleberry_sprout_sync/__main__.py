@@ -24,7 +24,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target date YYYY-MM-DD (default: today in the configured timezone)",
     )
-    parser.add_argument("--force", action="store_true", help="Re-sync even if the day is already synced")
     parser.add_argument(
         "--dry-run",
         dest="dry_run",
@@ -44,7 +43,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sync = subparsers.add_parser("sync", help="Sync one day of Huckleberry history into Sprout Track")
     sync.add_argument("--date", type=lambda value: date.fromisoformat(value), default=None)
-    sync.add_argument("--force", action="store_true")
     sync.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     sync.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     sync.add_argument(
@@ -64,7 +62,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="First day to backfill YYYY-MM-DD (default: ~18 months ago)",
     )
     backfill.add_argument("--end", type=lambda value: date.fromisoformat(value), default=None)
-    backfill.add_argument("--force", action="store_true")
     backfill.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     backfill.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     backfill.add_argument("--child", default=None)
@@ -150,12 +147,12 @@ async def _run_sync_with_notify(cfg, args, command: str, target: date) -> int:
             from .sync import backfill
 
             start = args.start or date.today() - timedelta(days=550)
-            result = await backfill(cfg, start, args.end, force=args.force, dry_run=args.dry_run, child=args.child)
+            result = await backfill(cfg, start, args.end, dry_run=args.dry_run, child=args.child)
             title, body = OK_TITLE, _format_backfill(cfg, result)
         else:
             from .sync import sync_day
 
-            result = await sync_day(cfg, target, force=args.force, dry_run=args.dry_run, child=args.child)
+            result = await sync_day(cfg, target, dry_run=args.dry_run, child=args.child)
             title, body = OK_TITLE, _format_sync(cfg, result)
         if cfg.dry_run:
             return 0
@@ -168,18 +165,16 @@ async def _run_sync_with_notify(cfg, args, command: str, target: date) -> int:
 
 
 def _format_sync(cfg, result: SyncResult) -> str:
-    lines = [f"{result.day}  (state={result.state})"]
-    if result.state == "already-synced":
-        return "\n".join(lines)
+    lines = [f"{result.day}  records={result.records}"]
     lines.append(_format_counts(result.by_kind))
-    if result.state == "no-events":
+    if not result.events:
         return "\n".join(lines)
     for event in sorted(result.events, key=lambda e: (e.time, _KIND_ORDER.get(e.sprout_type, 99))):
         when = event.time.astimezone(cfg.timezone).strftime("%H:%M")
         lines.append(f"- {when} {event.sprout_type} {event.summary}")
     if result.skipped_by_type:
         skipped = ", ".join(f"{kind}={count}" for kind, count in sorted(result.skipped_by_type.items()))
-        lines.append(f"\nskipped (already synced): {skipped}")
+        lines.append(f"\nskipped (already in Sprout Track): {skipped}")
     lines.append(f"planned={result.planned} written={result.written}")
     return "\n".join(lines)
 
@@ -187,7 +182,7 @@ def _format_sync(cfg, result: SyncResult) -> str:
 def _format_backfill(cfg, result: BackfillResult) -> str:
     lines = [
         f"range {result.start}..{result.end}",
-        f"days={result.days} skipped={result.days_skipped} failed={result.days_failed} records={result.records}",
+        f"days={result.days} failed={result.days_failed} records={result.records} planned={result.planned}",
     ]
     if result.written_by_type:
         breakdown = ", ".join(f"{kind}={count}" for kind, count in sorted(result.written_by_type.items()))

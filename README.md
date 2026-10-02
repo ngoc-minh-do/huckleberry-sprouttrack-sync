@@ -36,11 +36,13 @@ that *start* at or after `NIGHT_START_HOUR` (default 20:00) are typed
 `NIGHT_SLEEP`, earlier ones `NAP`.
 
 Medication doses are matched case-insensitively against the family's medicine
-reference (`GET /reference?type=medicines`); a dose whose name isn't configured
-is left out (run `hb-st-sync sprout-info` to see which names are available).
-Doses with `ml`/`oz` units are converted to the family unit like bottles; other
-units (`tsp`, `drops`, …) are sent without a unit so Sprout falls back to the
-medicine's own configured unit.
+reference (`GET /reference`); a dose whose name isn't configured is left out
+(run `hb-st-sync sprout-info` to see which names are available). Doses with
+`ml`/`oz` units are converted to the family unit like bottles; other units
+(`tsp`, `drops`, …) are sent with the medicine's own configured unit. When the
+Huckleberry record has an empty or `0` amount (e.g. a newborn Vitamin K logged
+as "0 drops"), the medicine's configured **typical dose** is used instead, so
+no 0-dose entries are created.
 
 ## How it works
 
@@ -51,16 +53,14 @@ medicine's own configured unit.
    Bottle amounts are converted from Huckleberry's stored unit to the Sprout
    Track family's configured unit (`SPROUT_UNIT`, default `ML` when available):
    1 fl oz = 29.5735 ml.
-3. **Dedupe** — before writing, the live Sprout Track activity history is
-   polled (`GET /activities?type=…&since=…`) and an event is skipped when a
-   same-type activity already exists within `DEDUP_WINDOW_MINUTES` (default
-   15) of its planned time. This keeps syncs idempotent and makes `--force`
-   replay safe.
+3. **Dedupe (no state file)** — before writing, the live Sprout Track activity
+   history is polled (`GET /activities?type=…&since=…`) and an event is skipped
+   when a same-type activity already exists within `DEDUP_WINDOW_MINUTES`
+   (default 15) of its planned time. This keeps daily runs and re-runs
+   idempotent even if a previous run failed partway.
 4. **Write** — events are POSTed to `/api/hooks/v1/babies/:id/activities`,
    throttled to stay under the 30 writes/minute rate limit and retried with
    backoff on 429s.
-5. **State** — `data/state.json` records which dates were already synced so
-   the daily run skips cleanly.
 
 ## Local setup
 
@@ -109,14 +109,12 @@ Prefer not to manage a Python virtualenv? Run it as a container:
 docker build -t huckleberry-sprouttrack-sync:latest .
 ```
 
-The image runs the same `sync` command by default. Mount a directory for
-`DATA_DIR` so `data/state.json` persists between runs:
+The image runs the same `sync` command by default. No state is kept, so
+nothing needs to persist between runs:
 
 ```bash
 docker run --rm \
   --env-file .env \
-  -v hb-st-sync-data:/data \
-  -e DATA_DIR=/data \
   huckleberry-sprouttrack-sync:latest sync
 ```
 
@@ -148,7 +146,6 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `DEDUP_SINCE_DAYS` | no | `7` | How far back to poll Sprout Track for dedup, relative to the earliest day |
 | `WRITE_DELAY_SECONDS` | no | `2.2` | Minimum pause between POSTs (30/min write rate limit) |
 | `APPRISE_URL` | no | — | Apprise webhook; posts a success/failure notification after each real sync |
-| `DATA_DIR` | no | `data` | State directory |
 
 ## Disclaimer / risk
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from huckleberry_sprout_sync.config import Config
@@ -27,7 +26,6 @@ def make_config(**overrides) -> Config:
         "sprout_unit": None,
         "timezone_name": "Asia/Tokyo",
         "dry_run": True,
-        "data_dir": Path("data"),
         "child": None,
         "sync_feed": True,
         "sync_sleep": True,
@@ -251,6 +249,28 @@ def test_plan_medication_matched_and_skipped():
     assert by_type["medicine"].payload["unitAbbr"] == "ML"
     assert by_type["supplement"].payload["supplementName"] == "Vitamin D Drops"
     assert len(events) == 2
+
+
+def test_plan_medication_zero_dose_uses_typical():
+    cfg = make_config()
+    medicines = {"vitamin k": {"name": "Vitamin K", "isSupplement": True, "typicalDoseSize": 1.0, "unitAbbr": "ML"}}
+    zero = HbRecord(kind="medication", start=at(18, 12), payload={"name": "Vitamin K", "amount": 0.0, "units": "drops"})
+    events = plan_events([zero], cfg, resolved_unit="ML", medicines=medicines)
+    assert len(events) == 1
+    payload = events[0].payload
+    assert payload["supplementName"] == "Vitamin K"
+    assert payload["amount"] == 1.0
+    assert payload["unitAbbr"] == "ML"
+
+
+def test_plan_medication_drops_uses_medicine_unit():
+    cfg = make_config()
+    medicines = {"vitamin d": {"name": "Vitamin D", "isSupplement": True, "typicalDoseSize": 2.0, "unitAbbr": "DROP"}}
+    dose = HbRecord(kind="medication", start=at(9, 0), payload={"name": "Vitamin D", "amount": 5.0, "units": "drops"})
+    events = plan_events([dose], cfg, resolved_unit="ML", medicines=medicines)
+    payload = events[0].payload
+    assert payload["amount"] == 5.0
+    assert payload["unitAbbr"] == "DROP"
 
 
 def test_temperature_kind_is_measurement_subtype():

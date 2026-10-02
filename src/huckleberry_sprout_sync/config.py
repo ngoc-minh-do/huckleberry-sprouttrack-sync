@@ -22,7 +22,6 @@ class Config:
     sprout_unit: str | None
     timezone_name: str
     dry_run: bool
-    data_dir: Path
     child: str | None
     sync_feed: bool
     sync_sleep: bool
@@ -41,10 +40,6 @@ class Config:
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone_name)
-
-    @property
-    def state_path(self) -> Path:
-        return self.data_dir / "state.json"
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:
@@ -90,10 +85,6 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
     if dry_run is None:
         dry_run = _parse_bool(os.environ.get("DRY_RUN"), True)
 
-    project_root = Path(__file__).resolve().parent.parent
-    default_data_dir = project_root / "data"
-    data_dir = Path(os.environ.get("DATA_DIR", default_data_dir)).expanduser()
-
     sprout_unit = (os.environ.get("SPROUT_UNIT") or "").strip().upper() or None
     return Config(
         huckleberry_email=huckleberry_email,
@@ -104,7 +95,6 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
         sprout_unit=sprout_unit,
         timezone_name=os.environ.get("TIMEZONE", "Asia/Tokyo"),
         dry_run=dry_run,
-        data_dir=data_dir,
         child=(os.environ.get("CHILD") or "").strip() or None,
         sync_feed=_parse_bool(os.environ.get("SYNC_FEED"), True),
         sync_sleep=_parse_bool(os.environ.get("SYNC_SLEEP"), True),

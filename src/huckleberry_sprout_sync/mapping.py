@@ -495,18 +495,39 @@ def _plan_medication(
         "time": record.start.isoformat(),
     }
     payload["medicineName" if sprout_type == "medicine" else "supplementName"] = reference.get("name") or name
+
     amount = record.payload.get("amount")
-    if amount is None:
-        return None
+    if amount is None or amount == 0:
+        # Huckleberry logs an empty/zero dose (e.g. "0 drops" for a newborn
+        # Vitamin K). Fall back to the configured typical dose instead of
+        # recording a 0-dose entry.
+        original = amount
+        typical = reference.get("typicalDoseSize")
+        if typical is None:
+            if amount is None:
+                return None
+            typical = amount
+        amount = typical
+        _LOGGER.info(
+            "Medication %r at %s had zero/empty Huckleberry amount (%r); using configured typical dose %s",
+            name,
+            record.start,
+            original,
+            typical,
+        )
+
     units = (record.payload.get("units") or "").strip().lower()
     if units in {"ml", "oz"}:
         payload["amount"] = convert_amount(amount, units, resolved_unit)
         if resolved_unit:
             payload["unitAbbr"] = resolved_unit
     else:
-        # tsp/drops etc.: Sprout Track only resolves family units; fall back to
-        # the medicine's own configured unit by omitting unitAbbr.
+        # tsp/drops/other: use the medicine's own configured unit instead of
+        # omitting unitAbbr, so the value is labeled correctly.
         payload["amount"] = amount
+        unit_abbr = reference.get("unitAbbr")
+        if unit_abbr:
+            payload["unitAbbr"] = unit_abbr
     notes = _summary(record.payload.get("notes"))
     if notes:
         payload["notes"] = notes

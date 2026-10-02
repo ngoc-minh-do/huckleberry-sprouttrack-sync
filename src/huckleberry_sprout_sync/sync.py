@@ -16,7 +16,6 @@ from .mapping import (
 )
 from .models import PlannedEvent
 from .sprout import SproutClient
-from .state import SyncState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +33,6 @@ class ApplyResult:
 class SyncResult:
     day: date
     dry_run: bool
-    state: str = "synced"
     records: int = 0
     by_kind: dict[str, int] = field(default_factory=dict)
     planned: int = 0
@@ -50,7 +48,6 @@ class BackfillResult:
     end: date
     dry_run: bool
     days: int = 0
-    days_skipped: int = 0
     days_failed: int = 0
     records: int = 0
     planned: int = 0
@@ -62,20 +59,12 @@ async def sync_day(
     cfg: Config,
     target: date | None,
     *,
-    force: bool,
     dry_run: bool | None = None,
     child: str | None = None,
 ) -> SyncResult:
     effective_dry_run = cfg.dry_run if dry_run is None else dry_run
     child = child or cfg.child
     day = target or date.today()
-    state = SyncState(cfg.state_path)
-
-    if state.is_synced(day) and not force:
-        _LOGGER.info(
-            "Day %s already synced (%s events) - skipping. Use --force to re-sync.", day, state.synced_event_count(day)
-        )
-        return SyncResult(day=day, dry_run=effective_dry_run, state="already-synced")
 
     reader = HuckleberryReader(cfg)
     sprout = SproutClient(cfg)
@@ -91,7 +80,6 @@ async def sync_day(
         result = SyncResult(
             day=day,
             dry_run=effective_dry_run,
-            state="parsed",
             records=len(records),
             by_kind=counts,
             planned=len(events),
@@ -105,7 +93,6 @@ async def sync_day(
             effective_dry_run,
         )
         if not events:
-            result.state = "no-events"
             return result
 
         existing = await _collect_existing(
@@ -119,10 +106,6 @@ async def sync_day(
         result.written = applied.written
         result.written_by_type = applied.written_by_type
         result.skipped_by_type = applied.skipped_by_type
-
-        if not effective_dry_run:
-            state.mark_synced(day, applied.written)
-            _LOGGER.info("Marked %s as synced", day)
         return result
     finally:
         await reader.close()
@@ -134,14 +117,12 @@ async def backfill(
     start: date,
     end: date | None,
     *,
-    force: bool,
     dry_run: bool | None = None,
     child: str | None = None,
 ) -> BackfillResult:
     effective_dry_run = cfg.dry_run if dry_run is None else dry_run
     child = child or cfg.child
     day_end = end or date.today()
-    state = SyncState(cfg.state_path)
     if start > day_end:
         raise ValueError("backfill start must not be after end")
 
@@ -170,17 +151,11 @@ async def backfill(
             earliest=start - timedelta(days=cfg.dedup_since_days),
         )
         for date_day in days:
-            if state.is_synced(date_day) and not force:
-                _LOGGER.info("Skip %s (already synced)", date_day)
-                result.days_skipped += 1
-                continue
             per_day_events = plan_events(by_day[date_day], cfg, resolved_unit=unit, medicines=medicines)
             if not per_day_events:
                 continue
             try:
-                applied = await _apply(
-                    sprout, baby_id, per_day_events, existing, cfg, dry_run=effective_dry_run
-                )
+                applied = await _apply(sprout, baby_id, per_day_events, existing, cfg, dry_run=effective_dry_run)
                 result.planned += len(per_day_events)
                 result.written += applied.written
                 for kind, count in applied.written_by_type.items():
@@ -192,16 +167,13 @@ async def backfill(
                     len(per_day_events),
                     applied.written,
                 )
-                if not effective_dry_run and (applied.written or applied.skipped_by_type):
-                    state.mark_synced(date_day, applied.written)
             except Exception:
                 result.days_failed += 1
                 _LOGGER.exception("Backfill failed for %s", date_day)
         _LOGGER.info(
-            "Backfill complete: wrote %d events across %d days (%d skipped, %d failed)",
+            "Backfill complete: wrote %d events across %d days (%d failed)",
             result.written,
-            result.days - result.days_skipped - result.days_failed,
-            result.days_skipped,
+            result.days - result.days_failed,
             result.days_failed,
         )
         return result
@@ -224,17 +196,27 @@ async def _resolve_medicines(cfg: Config, sprout: SproutClient, baby_id: str) ->
         return {}
     medicines: dict[str, dict] = {}
     for entry in reference.get("medicines") or []:
-        name = str(entry.get("name") or "").strip()
-        if not name:
-            continue
-        medicines[name.lower()] = {"name": name, "isSupplement": bool(entry.get("isSupplement"))}
+        medicine_entry = _medicine_reference_entry(entry)
+        if medicine_entry is not None:
+            medicines[medicine_entry["name"].lower()] = medicine_entry
     for entry in reference.get("supplements") or []:
-        name = str(entry.get("name") or "").strip()
-        if not name:
-            continue
-        medicines.setdefault(name.lower(), {"name": name, "isSupplement": True})
+        medicine_entry = _medicine_reference_entry(entry)
+        if medicine_entry is not None:
+            medicines.setdefault(medicine_entry["name"].lower(), medicine_entry)
     _LOGGER.info("Sprout Track medicine/supplement reference: %d entries", len(medicines))
     return medicines
+
+
+def _medicine_reference_entry(entry: dict) -> dict | None:
+    name = str(entry.get("name") or "").strip()
+    if not name:
+        return None
+    return {
+        "name": name,
+        "isSupplement": bool(entry.get("isSupplement")),
+        "typicalDoseSize": entry.get("typicalDoseSize"),
+        "unitAbbr": entry.get("unitAbbr"),
+    }
 
 
 async def _resolve_unit(cfg: Config, sprout: SproutClient, baby_id: str) -> str | None:
