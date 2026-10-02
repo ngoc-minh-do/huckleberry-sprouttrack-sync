@@ -53,7 +53,7 @@ no 0-dose entries are created.
    Bottle amounts are converted from Huckleberry's stored unit to the Sprout
    Track family's configured unit (`SPROUT_UNIT`, default `ML` when available):
    1 fl oz = 29.5735 ml.
-3. **Dedupe (no state file)** — before writing, the live Sprout Track activity
+3. **Dedupe** — before writing, the live Sprout Track activity
    history is polled (`GET /activities?type=…&since=…`) and an event is skipped
    when a same-type activity already exists within `DEDUP_WINDOW_MINUTES`
    (default 15) of its planned time. This keeps daily runs and re-runs
@@ -109,8 +109,8 @@ Prefer not to manage a Python virtualenv? Run it as a container:
 docker build -t huckleberry-sprouttrack-sync:latest .
 ```
 
-The image runs the same `sync` command by default. No state is kept, so
-nothing needs to persist between runs:
+The image runs the same `sync` command by default, with nothing to persist
+between runs:
 
 ```bash
 docker run --rm \
