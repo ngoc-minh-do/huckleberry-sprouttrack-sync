@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 from datetime import datetime, timedelta
 
@@ -36,13 +37,20 @@ class SproutClient:
         self.config = config
         self._session: aiohttp.ClientSession = aiohttp.ClientSession(timeout=_TIMEOUT)
         self._last_write = 0.0
+        # Each API key has its own 30 writes/min bucket; round-robin across all
+        # configured keys multiplies the sustained write rate.
+        self._keys: list[str] = list(config.sprout_api_keys)
+        self._key_cycle = itertools.cycle(self._keys)
 
     @property
     def _base(self) -> str:
         return f"{self.config.sprout_base_url}/api/hooks/v1"
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.config.sprout_api_key}", "Content-Type": "application/json"}
+        return {
+            "Authorization": f"Bearer {next(self._key_cycle)}",
+            "Content-Type": "application/json",
+        }
 
     @staticmethod
     def _data(payload: dict) -> dict:
@@ -141,18 +149,27 @@ class SproutClient:
     async def _throttle(self) -> None:
         loop = asyncio.get_event_loop()
         elapsed = loop.time() - self._last_write
-        delay = self.config.write_delay_seconds - elapsed
+        delay = self.config.write_delay_seconds / max(1, len(self._keys)) - elapsed
         if delay > 0:
             _LOGGER.debug("Throttling Sprout Track write for %.2fs", delay)
             await asyncio.sleep(delay)
         self._last_write = loop.time()
 
     async def _wait_rate_limit(self, response: aiohttp.ClientResponse, attempt: int) -> None:
+        import time as _time
+
+        # X-RateLimit-Reset is a Unix epoch (seconds); compare against the
+        # real clock, never the monotonic loop timer.
+        wait = 5.0 * (attempt + 1)
         reset = response.headers.get("X-RateLimit-Reset")
-        try:
-            wait = max(float(reset) - asyncio.get_event_loop().time(), 1.0) if reset else 5.0 * (attempt + 1)
-        except ValueError:
-            wait = 5.0 * (attempt + 1)
+        if reset:
+            try:
+                remaining = float(reset) - _time.time()
+                if remaining > 0:
+                    wait = remaining
+            except ValueError:
+                pass
+        wait = min(max(wait, 1.0), 120.0)
         _LOGGER.warning("Sprout Track rate limited; waiting %.1fs", wait)
         await asyncio.sleep(wait)
 

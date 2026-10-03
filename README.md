@@ -82,7 +82,9 @@ immediately. Then discover the baby id:
 uv run hb-st-sync sprout-info
 ```
 
-Put the key in `SPROUT_API_KEY` (and optionally `SPROUT_BABY_ID`) in `.env`.
+Put the key(s) in `SPROUT_API_KEYS` (space/comma separated, plus optionally
+`SPROUT_BABY_ID`) in `.env`. More keys = faster writes (each has its own
+30/min budget).
 
 ### Check what would be synced (dry run)
 
@@ -100,6 +102,12 @@ Without `--date`, today is used (in `TIMEZONE`, default `Asia/Tokyo`).
 uv run hb-st-sync backfill --start 2025-04-01 --dry-run     # plan only
 uv run hb-st-sync backfill --start 2025-04-01 --no-dry-run  # write
 ```
+
+The webhook limits writes to 30/min **per API key** (sliding 60s window). A
+full multi-month backfill (~8.5k events) at one key takes ~5 hours. To go
+faster, create extra keys in **Settings → Admin → Integrations** and list them
+in `SPROUT_API_KEYS` — the client round-robins across them and each key gets
+its own 30/min bucket (10 keys ≈ 30 min for the same backfill).
 
 ## Docker
 
@@ -127,7 +135,7 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `HUCKLEBERRY_EMAIL` | yes | — | Huckleberry login email (source) |
 | `HUCKLEBERRY_PASSWORD` | yes | — | Huckleberry login password |
 | `SPROUT_BASE_URL` | no | `https://sprout-track.ngoclab.com` | Sprout Track instance base URL |
-| `SPROUT_API_KEY` | yes | — | Sprout Track webhook key (`st_live_…`, Settings → Admin → Integrations) |
+| `SPROUT_API_KEYS` | yes | — | One or more webhook keys (space/comma separated; `st_live_…`). Each has its own 30 writes/min budget; more keys = faster backfills |
 | `SPROUT_BABY_ID` | no | first baby | Baby to write; auto-resolved from `GET /babies` when unset |
 | `TIMEZONE` | no | `Asia/Tokyo` | IANA timezone used for event timestamps |
 | `DRY_RUN` | no | `true` | Plan only; do not write to Sprout Track |

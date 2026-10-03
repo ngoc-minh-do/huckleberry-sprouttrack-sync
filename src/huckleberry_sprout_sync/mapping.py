@@ -385,9 +385,8 @@ def _plan_temperature(record: HbRecord, cfg: Config) -> PlannedEvent | None:
         "value": amount,
         "unit": units,
     }
-    notes = _summary(record.payload.get("notes"))
-    if notes:
-        payload["notes"] = notes
+    # NOTE: the webhook rejects `notes` for measurement payloads, so they are
+    # intentionally not forwarded here.
     return PlannedEvent(
         sprout_type="measurement",
         kind="TEMPERATURE",
@@ -423,9 +422,8 @@ def _plan_pump(record: HbRecord, cfg: Config, resolved_unit: str | None) -> Plan
             payload["leftAmount"] = converted_left
             payload["rightAmount"] = converted_right
             payload["unitAbbr"] = resolved_unit
-    notes = _summary(record.payload.get("notes"))
-    if notes:
-        payload["notes"] = notes
+    # NOTE: the webhook rejects `notes` for pump (and measurement) payloads, so
+    # they are intentionally not forwarded here.
     total_label = payload.get("totalAmount") or (
         f"{payload.get('leftAmount')}/{payload.get('rightAmount')}" if "leftAmount" in payload else "?"
     )

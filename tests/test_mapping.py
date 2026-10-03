@@ -21,7 +21,7 @@ def make_config(**overrides) -> Config:
         "huckleberry_email": "a@b.c",
         "huckleberry_password": "pw",
         "sprout_base_url": "https://sprout-track.ngoclab.com",
-        "sprout_api_key": "st_live_test",
+        "sprout_api_keys": ("st_live_test",),
         "sprout_baby_id": None,
         "sprout_unit": None,
         "timezone_name": "Asia/Tokyo",
@@ -153,11 +153,12 @@ def test_plan_bath():
 
 def test_plan_temperature():
     cfg = make_config()
-    record = HbRecord(kind="temperature", start=at(7, 0), payload={"amount": 36.5, "units": "C"})
+    record = HbRecord(kind="temperature", start=at(7, 0), payload={"amount": 36.5, "units": "C", "notes": "36.5"})
     events = plan_events([record], cfg, resolved_unit="ML")
     assert events[0].sprout_type == "measurement"
     assert events[0].payload["measurementType"] == "TEMPERATURE"
     assert events[0].payload["value"] == 36.5
+    assert "notes" not in events[0].payload  # webhook rejects notes on measurement
 
 
 def test_sync_toggles():
@@ -186,7 +187,7 @@ def test_plan_pump_leftright():
         kind="pump",
         start=at(6, 30),
         end=at(6, 50),
-        payload={"entry_mode": "leftright", "left_amount": 60, "right_amount": 70, "units": "ml"},
+        payload={"entry_mode": "leftright", "left_amount": 60, "right_amount": 70, "units": "ml", "notes": "90"},
     )
     events = plan_events([record], cfg, resolved_unit="ML")
     assert len(events) == 1
@@ -196,6 +197,7 @@ def test_plan_pump_leftright():
     assert payload["rightAmount"] == 70
     assert payload["unitAbbr"] == "ML"
     assert payload["duration"] == 20
+    assert "notes" not in payload  # webhook rejects notes on pump
     assert planned_key(events[0]) == ("pump", "pump")
 
 

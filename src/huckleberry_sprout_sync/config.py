@@ -17,7 +17,7 @@ class Config:
     huckleberry_email: str
     huckleberry_password: str
     sprout_base_url: str
-    sprout_api_key: str
+    sprout_api_keys: tuple[str, ...]
     sprout_baby_id: str | None
     sprout_unit: str | None
     timezone_name: str
@@ -77,10 +77,20 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
 
     huckleberry_email = require("HUCKLEBERRY_EMAIL")
     huckleberry_password = require("HUCKLEBERRY_PASSWORD")
-    sprout_api_key = require("SPROUT_API_KEY")
 
-    if sprout_api_key == "st_live_your_key_here":
-        raise ConfigError("SPROUT_API_KEY is still the placeholder; set a real key or DRY_RUN stays off")
+    # One or more API keys (comma/space separated). Each key has its own
+    # independent 30 writes/min bucket, so round-robin use multiplies the
+    # write throughput by the number of keys.
+    sprout_api_keys: list[str] = []
+    for raw in os.environ.get("SPROUT_API_KEYS", "").replace(",", " ").split():
+        key = raw.strip()
+        if key and key not in sprout_api_keys:
+            sprout_api_keys.append(key)
+    if not sprout_api_keys:
+        raise ConfigError("Missing required environment variable SPROUT_API_KEYS")
+
+    if sprout_api_keys[0] == "st_live_your_key_here":
+        raise ConfigError("SPROUT_API_KEYS is still the placeholder; set real keys or DRY_RUN stays off")
 
     if dry_run is None:
         dry_run = _parse_bool(os.environ.get("DRY_RUN"), True)
@@ -90,7 +100,7 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
         huckleberry_email=huckleberry_email,
         huckleberry_password=huckleberry_password,
         sprout_base_url=(os.environ.get("SPROUT_BASE_URL", "https://sprout-track.ngoclab.com").strip().rstrip("/")),
-        sprout_api_key=sprout_api_key,
+        sprout_api_keys=tuple(sprout_api_keys),
         sprout_baby_id=(os.environ.get("SPROUT_BABY_ID") or "").strip() or None,
         sprout_unit=sprout_unit,
         timezone_name=os.environ.get("TIMEZONE", "Asia/Tokyo"),

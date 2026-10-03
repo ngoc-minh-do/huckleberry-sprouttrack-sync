@@ -159,7 +159,7 @@ async def backfill(
                 result.planned += len(per_day_events)
                 result.written += applied.written
                 for kind, count in applied.written_by_type.items():
-                    result.written_by_type[kind] += count
+                    result.written_by_type[kind] = result.written_by_type.get(kind, 0) + count
                 _LOGGER.info(
                     "--- %s: %d records -> %d selected, %d written",
                     date_day,
