@@ -1,6 +1,7 @@
 .env
 .venv/
 cronicle/
+.serena/
 __pycache__/
 *.py[cod]
 .pytest_cache/
