@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -40,6 +41,11 @@ class Config:
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone_name)
+
+    @property
+    def local_today(self) -> date:
+        """Today's calendar date in the configured timezone (host-clock independent)."""
+        return datetime.now(self.timezone).date()
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:

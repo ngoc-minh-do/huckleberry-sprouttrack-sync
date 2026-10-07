@@ -329,3 +329,8 @@ def test_reader_entry_normalization():
         1699177500,
     )
     assert medication.kind == "medication"
+
+
+def test_local_today_is_in_configured_timezone() -> None:
+    cfg = make_config(timezone_name="Asia/Tokyo")
+    assert cfg.local_today == datetime.now(TZ).date()

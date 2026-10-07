@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from .config import ConfigError, load_config
@@ -22,7 +22,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--date",
         type=lambda value: date.fromisoformat(value),
         default=None,
-        help="Target date YYYY-MM-DD (default: today in the configured timezone)",
+        help="Target date YYYY-MM-DD (default: previous day in the configured timezone)",
     )
     parser.add_argument(
         "--dry-run",
@@ -42,7 +42,12 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     sync = subparsers.add_parser("sync", help="Sync one day of Huckleberry history into Sprout Track")
-    sync.add_argument("--date", type=lambda value: date.fromisoformat(value), default=None)
+    sync.add_argument(
+        "--date",
+        type=lambda value: date.fromisoformat(value),
+        default=None,
+        help="Target date YYYY-MM-DD (default: previous day in the configured timezone)",
+    )
     sync.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     sync.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     sync.add_argument(
@@ -53,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     backfill = subparsers.add_parser(
         "backfill",
-        help="One-time sync of all Huckleberry history from a start date through the end date (default today)",
+        help="One-time sync of all Huckleberry history from a start date through the end date (default: previous day)",
     )
     backfill.add_argument(
         "--start",
@@ -61,7 +66,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="First day to backfill YYYY-MM-DD (default: ~18 months ago)",
     )
-    backfill.add_argument("--end", type=lambda value: date.fromisoformat(value), default=None)
+    backfill.add_argument(
+        "--end",
+        type=lambda value: date.fromisoformat(value),
+        default=None,
+        help="Last day to backfill YYYY-MM-DD (default: previous day in the configured timezone)",
+    )
     backfill.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     backfill.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     backfill.add_argument("--child", default=None)
@@ -91,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "sprout-info":
         return asyncio.run(_show_sprout_info(cfg))
 
-    target = args.date or date.today()
+    target = args.date or cfg.local_today - timedelta(days=1)
     return asyncio.run(_run_sync_with_notify(cfg, args, command, target))
 
 
@@ -142,11 +152,9 @@ async def _run_sync_with_notify(cfg, args, command: str, target: date) -> int:
     notifier = AppriseNotifier(cfg.apprise_url)
     try:
         if command == "backfill":
-            from datetime import timedelta
-
             from .sync import backfill
 
-            start = args.start or date.today() - timedelta(days=550)
+            start = args.start or cfg.local_today - timedelta(days=550)
             result = await backfill(cfg, start, args.end, dry_run=args.dry_run, child=args.child)
             title, body = OK_TITLE, _format_backfill(cfg, result)
             code = 1 if result.days_failed else 0

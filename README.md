@@ -94,7 +94,10 @@ uv run hb-st-sync sync --date 2026-10-05 --no-dry-run
 uv run hb-st-sync sync --date 2026-10-05 --force --no-dry-run   # re-sync a day
 ```
 
-Without `--date`, today is used (in `TIMEZONE`, default `Asia/Tokyo`).
+Without `--date`, the **previous** day is used (in `TIMEZONE`, default
+`Asia/Tokyo`), so a scheduled run always mirrors a fully-elapsed day — dinners
+and night sleeps logged in the evening are included — instead of the
+still-incomplete current day.
 
 ### Backfill history
 

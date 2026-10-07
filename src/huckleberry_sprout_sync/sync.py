@@ -64,7 +64,7 @@ async def sync_day(
 ) -> SyncResult:
     effective_dry_run = cfg.dry_run if dry_run is None else dry_run
     child = child or cfg.child
-    day = target or date.today()
+    day = target or cfg.local_today - timedelta(days=1)
 
     reader = HuckleberryReader(cfg)
     sprout = SproutClient(cfg)
@@ -122,7 +122,7 @@ async def backfill(
 ) -> BackfillResult:
     effective_dry_run = cfg.dry_run if dry_run is None else dry_run
     child = child or cfg.child
-    day_end = end or date.today()
+    day_end = end or cfg.local_today - timedelta(days=1)
     if start > day_end:
         raise ValueError("backfill start must not be after end")
 
