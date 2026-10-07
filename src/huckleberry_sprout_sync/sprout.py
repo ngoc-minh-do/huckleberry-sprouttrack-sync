@@ -97,7 +97,7 @@ class SproutClient:
 
     async def list_activities(self, baby_id: str, activity_type: str, since: datetime) -> list[dict]:
         activities: list[dict] = []
-        cursor = since.astimezone()
+        cursor = since.astimezone(self.config.timezone)
         while True:
             params = {
                 "type": activity_type,

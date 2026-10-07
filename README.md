@@ -94,7 +94,7 @@ uv run hb-st-sync sync --date 2026-10-05 --no-dry-run
 uv run hb-st-sync sync --date 2026-10-05 --force --no-dry-run   # re-sync a day
 ```
 
-Without `--date`, the **previous** day is used (in `TIMEZONE`, default
+Without `--date`, the **previous** day is used (in `TZ`, default
 `Asia/Tokyo`), so a scheduled run always mirrors a fully-elapsed day — dinners
 and night sleeps logged in the evening are included — instead of the
 still-incomplete current day.
@@ -140,7 +140,7 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `SPROUT_BASE_URL` | no | `https://sprout-track.ngoclab.com` | Sprout Track instance base URL |
 | `SPROUT_API_KEYS` | yes | — | One or more webhook keys (space/comma separated; `st_live_…`). Each has its own 30 writes/min budget; more keys = faster backfills |
 | `SPROUT_BABY_ID` | no | first baby | Baby to write; auto-resolved from `GET /babies` when unset |
-| `TIMEZONE` | no | `Asia/Tokyo` | IANA timezone used for event timestamps |
+| `TZ` | no | `Asia/Tokyo` | Standard IANA timezone used for event timestamps and "today" |
 | `DRY_RUN` | no | `true` | Plan only; do not write to Sprout Track |
 | `CHILD` | no | first child | Huckleberry child name/nickname token to read |
 | `SYNC_FEED` | no | `true` | Sync bottles/solids/breast feeds |

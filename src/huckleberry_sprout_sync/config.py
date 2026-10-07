@@ -4,13 +4,16 @@ import os
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
 
 class ConfigError(RuntimeError):
     pass
+
+
+_DEFAULT_TIMEZONE = "Asia/Tokyo"
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,22 @@ class Config:
     def local_today(self) -> date:
         """Today's calendar date in the configured timezone (host-clock independent)."""
         return datetime.now(self.timezone).date()
+
+
+def _resolve_timezone_name() -> str:
+    raw = os.environ.get("TZ")
+    if raw is None:
+        return _DEFAULT_TIMEZONE
+    name = raw.strip()
+    if name.startswith(":"):
+        name = name[1:]
+    if not name:
+        return _DEFAULT_TIMEZONE
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ConfigError(f"TZ={raw!r} is not a valid IANA timezone name") from exc
+    return name
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:
@@ -109,7 +128,7 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
         sprout_api_keys=tuple(sprout_api_keys),
         sprout_baby_id=(os.environ.get("SPROUT_BABY_ID") or "").strip() or None,
         sprout_unit=sprout_unit,
-        timezone_name=os.environ.get("TIMEZONE", "Asia/Tokyo"),
+        timezone_name=_resolve_timezone_name(),
         dry_run=dry_run,
         child=(os.environ.get("CHILD") or "").strip() or None,
         sync_feed=_parse_bool(os.environ.get("SYNC_FEED"), True),
