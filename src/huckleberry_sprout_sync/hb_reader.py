@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, time, timedelta
 
 import aiohttp
@@ -115,7 +116,7 @@ class HuckleberryReader:
             number = float(value)
         except TypeError, ValueError:
             return None
-        return number if number == number else None  # NaN guard
+        return None if math.isnan(number) else number
 
     def _started(self, start_sec: float, *, duration_sec: float | None) -> tuple[datetime, datetime | None]:
         start = datetime.fromtimestamp(start_sec, tz=self.config.timezone)

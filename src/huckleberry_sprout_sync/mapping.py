@@ -124,7 +124,7 @@ def convert_amount(amount, from_unit: str | None, to_unit: str | None) -> float 
     else:
         return amount
     if to_unit == "ML":
-        return int(round(amount))
+        return round(amount)
     return round(amount, 2)
 
 
@@ -233,7 +233,7 @@ def _plan_breast(record: HbRecord, cfg: Config) -> PlannedEvent | None:
     if not cfg.sync_feed:
         return None
     duration_sec = float(record.payload.get("duration_seconds") or 0.0)
-    duration_min = max(1, int(round(duration_sec / 60)))
+    duration_min = max(1, round(duration_sec / 60))
     payload: dict = {
         "type": "feed",
         "feedType": "BREAST",
@@ -258,7 +258,7 @@ def _plan_breast(record: HbRecord, cfg: Config) -> PlannedEvent | None:
 def _plan_sleep(record: HbRecord, cfg: Config) -> PlannedEvent | None:
     if not cfg.sync_sleep or record.end is None:
         return None
-    duration_min = max(1, int(round((record.end - record.start).total_seconds() / 60)))
+    duration_min = max(1, round((record.end - record.start).total_seconds() / 60))
     sleep_type = "NIGHT_SLEEP" if record.start.time() >= time(cfg.night_start_hour) else "NAP"
     notes = _summary(record.payload.get("notes"))
     payload: dict = {
@@ -368,7 +368,7 @@ def _duration_minutes(record: HbRecord) -> int | None:
         seconds = record.payload.get("duration_seconds")
     if not seconds:
         return None
-    return max(1, int(round(float(seconds) / 60)))
+    return max(1, round(float(seconds) / 60))
 
 
 def _plan_temperature(record: HbRecord, cfg: Config) -> PlannedEvent | None:
@@ -564,6 +564,6 @@ def activity_start(activity: dict) -> datetime | None:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return datetime.fromisoformat(str(raw))
     except ValueError:
         return None

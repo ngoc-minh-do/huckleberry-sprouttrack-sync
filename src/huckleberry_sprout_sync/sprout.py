@@ -130,7 +130,7 @@ class SproutClient:
         if not raw:
             return None
         try:
-            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            return datetime.fromisoformat(str(raw))
         except ValueError:
             return None
 
