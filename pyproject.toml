@@ -2,13 +2,31 @@
 name = "huckleberry-sprouttrack-sync"
 version = "0.1.0"
 description = "Sync baby tracking data from Huckleberry into a self-hosted Sprout Track instance via its webhook API."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ngoc Minh Do" }]
 requires-python = ">=3.14"
+keywords = ["huckleberry", "sprout-track", "baby-tracker", "sync", "firestore", "webhook"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
 dependencies = [
     "huckleberry-api>=0.4.7",
     "aiohttp>=3.10",
     "python-dotenv>=1.0",
     "tzdata>=2024.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync"
+Repository = "https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync"
+Issues = "https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync/issues"
+Changelog = "https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync/blob/main/CHANGELOG.md"
 
 [project.scripts]
 hb-st-sync = "huckleberry_sprout_sync.__main__:main"
@@ -18,6 +36,9 @@ dev = [
     "ruff>=0.11",
     "pytest>=8",
     "pytest-asyncio>=0.25",
+    "ty>=0.0.85",
+    "commitizen>=4.19.2",
+    "prek>=0.5.5",
 ]
 
 [build-system]
@@ -28,7 +49,16 @@ build-backend = "hatchling.build"
 packages = ["src/huckleberry_sprout_sync"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/huckleberry_sprout_sync"]
+include = ["src/huckleberry_sprout_sync", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
 
 [tool.ruff]
 line-length = 120

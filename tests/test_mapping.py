@@ -20,7 +20,7 @@ def make_config(**overrides) -> Config:
     defaults: dict = {
         "huckleberry_email": "a@b.c",
         "huckleberry_password": "pw",
-        "sprout_base_url": "https://sprout-track.ngoclab.com",
+        "sprout_base_url": "https://sprout-track.example.com",
         "sprout_api_keys": ("st_live_test",),
         "sprout_baby_id": None,
         "sprout_unit": None,
@@ -289,22 +289,28 @@ def test_reader_entry_normalization():
         {"mode": "bottle", "start": 1699177500, "bottleType": "Formula", "amount": 160, "units": "ml"},
         1699177500,
     )
+    assert bottle is not None
     assert bottle.kind == "bottle"
     assert bottle.payload["amount"] == 160
 
     sleep = reader._to_record("sleep", {"start": 1699177500, "duration": 3600}, 1699177500)
+    assert sleep is not None
+    assert sleep.end is not None
     assert sleep.kind == "sleep"
     assert (sleep.end - sleep.start).total_seconds() == 3600
 
     diaper = reader._to_record("diaper", {"mode": "both", "start": 1699177500, "consistency": "loose"}, 1699177500)
+    assert diaper is not None
     assert diaper.payload["mode"] == "both"
 
     temp = reader._to_record(
         "health", {"mode": "temperature", "start": 1699177500, "amount": 36.5, "units": "C"}, 1699177500
     )
+    assert temp is not None
     assert temp.kind == "temperature"
 
     growth = reader._to_record("health", {"mode": "growth", "start": 1699177500, "weight": 3}, 1699177500)
+    assert growth is not None
     assert growth.kind == "growth"
     assert growth.payload["weight"] == 3
 
@@ -320,6 +326,8 @@ def test_reader_entry_normalization():
         },
         1699177500,
     )
+    assert pump is not None
+    assert pump.end is not None
     assert pump.kind == "pump"
     assert (pump.end - pump.start).total_seconds() == 600
 
@@ -328,6 +336,7 @@ def test_reader_entry_normalization():
         {"mode": "medication", "start": 1699177500, "medication_name": "Infant Tylenol", "amount": 1.25, "units": "ml"},
         1699177500,
     )
+    assert medication is not None
     assert medication.kind == "medication"
 
 

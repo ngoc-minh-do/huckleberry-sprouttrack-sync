@@ -87,6 +87,8 @@ class SproutClient:
         if not babies:
             raise ConfigError("Sprout Track returned no babies for this API key")
         baby_id = babies[0].get("id")
+        if not baby_id:
+            raise ConfigError("Sprout Track baby is missing an id")
         _LOGGER.info("Resolved Sprout Track baby %s (%s)", baby_id, babies[0].get("firstName"))
         return baby_id
 

@@ -1,0 +1,35 @@
+# Run via prek (`make install` registers the hooks). Hooks use the project's
+# locked environment through `uv run`, so there are no separate revisions to pin.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ty
+        name: ty check
+        entry: uv run ty check
+        language: system
+        pass_filenames: false
+        require_serial: true
+      - id: uv-lock
+        name: uv lock --check
+        entry: uv lock --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock)$
+        require_serial: true
+      - id: commitizen
+        name: commitizen check
+        entry: uv run cz check --commit-msg-file
+        language: system
+        stages: [commit-msg]

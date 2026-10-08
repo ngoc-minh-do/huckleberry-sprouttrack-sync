@@ -46,6 +46,8 @@ class HuckleberryReader:
             websession=self._session,
         )
         user = await self._api.get_user()
+        if user is None:
+            raise ConfigError("Could not load the Huckleberry user document")
         if not user.childList:
             raise ConfigError("Huckleberry account has no children registered")
         self._child_uid = self._resolve_child_uid(user.childList, child)

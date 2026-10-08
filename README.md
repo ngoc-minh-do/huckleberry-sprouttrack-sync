@@ -1,8 +1,12 @@
 # huckleberry-sprouttrack-sync
 
+[![CI](https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/ngoc-minh-do/huckleberry-sprouttrack-sync/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue.svg)](pyproject.toml)
+
 Syncs baby tracking data from [Huckleberry](https://huckleberry.com/) into a
 self-hosted [Sprout Track](https://github.com/Oak-and-Sprout/sprout-track)
-instance (e.g. `https://sprout-track.ngoclab.com`) through its webhook API.
+instance (e.g. `https://sprout-track.example.com`) through its webhook API.
 
 Huckleberry has no official read API — history is read directly from its
 Firebase Firestore database (the same transport the Huckleberry app uses, via
@@ -137,7 +141,7 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | --- | --- | --- | --- |
 | `HUCKLEBERRY_EMAIL` | yes | — | Huckleberry login email (source) |
 | `HUCKLEBERRY_PASSWORD` | yes | — | Huckleberry login password |
-| `SPROUT_BASE_URL` | no | `https://sprout-track.ngoclab.com` | Sprout Track instance base URL |
+| `SPROUT_BASE_URL` | no | `https://sprout-track.example.com` | Sprout Track instance base URL |
 | `SPROUT_API_KEYS` | yes | — | One or more webhook keys (space/comma separated; `st_live_…`). Each has its own 30 writes/min budget; more keys = faster backfills |
 | `SPROUT_BABY_ID` | no | first baby | Baby to write; auto-resolved from `GET /babies` when unset |
 | `TZ` | no | `Asia/Tokyo` | Standard IANA timezone used for event timestamps and "today" |
@@ -166,3 +170,28 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 - Sprout Track writes create permanent entries. Start with dry-run mode and
   verify planned events before enabling real sync.
 - Credentials are read from the environment; keep `.env` out of version control.
+
+## Development
+
+Requires [uv](https://docs.astral.sh/uv/); the Python version is pinned in
+`.python-version`.
+
+```bash
+uv sync
+make check     # ruff lint + format check + ty typecheck + pytest
+```
+
+Run `make` to list every target (`fix`, `test`, `typecheck`, `audit`, `build`,
+...). See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit convention and PR
+process.
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the
+`make check` gate, and the commit/PR conventions. By participating you agree to
+the [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately per
+[SECURITY.md](SECURITY.md), never in a public issue.
+
+## License
+
+Released under the [MIT License](LICENSE).

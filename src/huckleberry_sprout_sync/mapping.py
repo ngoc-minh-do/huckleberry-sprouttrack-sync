@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, time
 
 from .config import Config
-from .models import HbRecord, PlannedEvent
+from .models import HbRecord, PlannedEvent, SproutType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ COLOR_TO_DIAPER_COLOR: dict[str, str] = {
 }
 
 # Huckleberry activity mode -> (Sprout type, playType or None).
-ACTIVITY_MODE_MAP: dict[str, tuple[str, str | None]] = {
+ACTIVITY_MODE_MAP: dict[str, tuple[SproutType, str | None]] = {
     "bath": ("bath", None),
     "tummyTime": ("play", "TUMMY_TIME"),
     "indoorPlay": ("play", "INDOOR_PLAY"),
@@ -176,8 +176,8 @@ def _plan_one(
     return None
 
 
-def _summary(text: str) -> str:
-    return text.replace("\n", " ").strip() if text else ""
+def _summary(text: object) -> str:
+    return str(text).replace("\n", " ").strip() if text else ""
 
 
 def _plan_bottle(record: HbRecord, cfg: Config, resolved_unit: str | None) -> PlannedEvent | None:

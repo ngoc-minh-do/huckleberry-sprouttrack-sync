@@ -124,7 +124,7 @@ def load_config(env_path: Path | None = None, *, dry_run: bool | None = None) ->
     return Config(
         huckleberry_email=huckleberry_email,
         huckleberry_password=huckleberry_password,
-        sprout_base_url=(os.environ.get("SPROUT_BASE_URL", "https://sprout-track.ngoclab.com").strip().rstrip("/")),
+        sprout_base_url=(os.environ.get("SPROUT_BASE_URL", "https://sprout-track.example.com").strip().rstrip("/")),
         sprout_api_keys=tuple(sprout_api_keys),
         sprout_baby_id=(os.environ.get("SPROUT_BABY_ID") or "").strip() or None,
         sprout_unit=sprout_unit,
