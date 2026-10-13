@@ -80,6 +80,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "sprout-info",
         help="Introspect the Sprout Track instance: list babies and valid reference values",
     )
+
+    compare = subparsers.add_parser(
+        "compare",
+        help="Read-only diff of Huckleberry history against a Sprout Track DB snapshot",
+    )
+    compare.add_argument("--db", required=True, help="Path to a Sprout Track baby-tracker.db snapshot")
+    compare.add_argument("--start", type=lambda value: date.fromisoformat(value), default=None)
+    compare.add_argument("--end", type=lambda value: date.fromisoformat(value), default=None)
+    compare.add_argument("--child", default=None)
     return parser
 
 
@@ -101,8 +110,27 @@ def main(argv: list[str] | None = None) -> int:
     if command == "sprout-info":
         return asyncio.run(_show_sprout_info(cfg))
 
+    if command == "compare":
+        return asyncio.run(_run_compare(cfg, args))
+
     target = args.date or cfg.local_today - timedelta(days=1)
     return asyncio.run(_run_sync_with_notify(cfg, args, command, target))
+
+
+async def _run_compare(cfg, args) -> int:
+    from .compare import collect, format_report
+    from .hb_reader import HuckleberryReader
+
+    end = args.end or cfg.local_today
+    start = args.start or end - timedelta(days=550)
+    reader = HuckleberryReader(cfg)
+    await reader.connect(child=args.child or cfg.child)
+    try:
+        result = await collect(reader, cfg, args.db, start, end)
+    finally:
+        await reader.close()
+    print(format_report(result, cfg.timezone, start, end))
+    return 0
 
 
 async def _show_sprout_info(cfg) -> int:

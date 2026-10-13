@@ -122,6 +122,13 @@ faster, create extra keys in **Settings → Admin → Integrations** and list th
 in `SPROUT_API_KEYS` — the client round-robins across them and each key gets
 its own 30/min bucket (10 keys ≈ 30 min for the same backfill).
 
+### Compare against a snapshot (read-only)
+
+`hb-st-sync compare --db <baby-tracker.db snapshot>` diffs Huckleberry against a
+Sprout DB snapshot (JST times), reporting per type `matched` / `drift` (edited
+in Huckleberry after import) / `moved` (start or end shifted) / `near_dup` /
+`truly_missing` / `sprout_only`. It never writes to Sprout Track.
+
 ## Docker
 
 Prefer not to manage a Python virtualenv? Run it as a container:
