@@ -72,9 +72,12 @@ ACTIVITY_LABEL: dict[str, str] = {
 
 FEED_TYPE_DETAIL: dict[str, str] = {
     "bottle": "BOTTLE",
-    "solids": "SOLIDS",
     "breast": "BREAST",
 }
+
+# Catalog name used for solids entries with no foods selected (matches Sprout
+# Track's own generic food, which the 1.6.8 legacy-SOLIDS path also uses).
+GENERIC_FOOD_NAME = "Solids"
 
 # Huckleberry measurement unit -> Sprout Track measurement unit labels.
 GROWTH_UNITS: dict[str, str] = {
@@ -209,23 +212,28 @@ def _plan_bottle(record: HbRecord, cfg: Config, resolved_unit: str | None) -> Pl
 def _plan_solids(record: HbRecord, cfg: Config) -> PlannedEvent | None:
     if not cfg.sync_feed:
         return None
-    foods = record.payload.get("foods") or []
+    # Huckleberry foods[] are the real food names; write them as a proper
+    # `food` activity (Sprout Track >= 1.6.8) instead of the legacy feed
+    # SOLIDS string-join that used to produce one compound catalog entry.
+    foods = [food for food in record.payload.get("foods") or [] if (food or "").strip()]
+    names = list(dict.fromkeys(foods))
     payload: dict = {
-        "type": "feed",
-        "feedType": "SOLIDS",
+        "type": "food",
         "time": record.start.isoformat(),
     }
-    if foods:
-        payload["food"] = ", ".join(foods)
+    if names:
+        payload["foods"] = names
+    else:
+        payload["foodName"] = GENERIC_FOOD_NAME
     notes = _summary(record.payload.get("notes"))
     if notes:
         payload["notes"] = notes
     return PlannedEvent(
-        sprout_type="feed",
+        sprout_type="food",
         kind="solids",
         time=record.start,
         payload=payload,
-        summary=f"solids: {', '.join(foods[:3])}{' …' if len(foods) > 3 else ''}",
+        summary=f"solids: {', '.join(names[:3])}{' …' if len(names) > 3 else ''}",
     )
 
 
@@ -538,11 +546,20 @@ def _plan_medication(
     )
 
 
+def _food_key(name) -> str:
+    """Case/whitespace-insensitive identity for one food name."""
+    return " ".join(str(name).lower().split())
+
+
 def planned_key(event: PlannedEvent) -> tuple[str, str]:
     """Dedupe identity: (Sprout activity type[, subtype]) so bottles and solids
     or multiple measurement kinds at the same time still all sync."""
     if event.sprout_type == "feed":
         return ("feed", FEED_TYPE_DETAIL.get(event.kind, "feed"))
+    if event.sprout_type == "food":
+        foods = event.payload.get("foods") or [event.payload.get("foodName")]
+        names = sorted({_food_key(name) for name in foods if name})
+        return ("food", "|".join(names))
     if event.sprout_type == "measurement":
         return ("measurement", event.kind or "measurement")
     return (event.sprout_type, event.sprout_type)
@@ -552,6 +569,10 @@ def existing_key(activity: dict) -> tuple[str, str]:
     """Dedupe identity for an activity already in Sprout Track."""
     activity_type = activity.get("activityType")
     details = activity.get("details") or {}
+    if activity_type == "food":
+        foods = details.get("foods") or []
+        names = sorted({_food_key(item.get("name")) for item in foods if item.get("name")})
+        return ("food", "|".join(names))
     if activity_type in {"feed", "measurement"}:
         return (activity_type, details.get("type") or activity_type)
     return (activity_type or "", activity_type or "")

@@ -19,7 +19,7 @@ from .sprout import SproutClient
 
 _LOGGER = logging.getLogger(__name__)
 
-_WRITE_TYPES = ("feed", "sleep", "diaper", "play", "bath", "measurement", "pump", "medicine", "supplement")
+_WRITE_TYPES = ("feed", "food", "sleep", "diaper", "play", "bath", "measurement", "pump", "medicine", "supplement")
 
 
 @dataclass

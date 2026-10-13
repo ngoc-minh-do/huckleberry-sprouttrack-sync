@@ -7,6 +7,7 @@ from huckleberry_sprout_sync.config import Config
 from huckleberry_sprout_sync.hb_reader import HuckleberryReader
 from huckleberry_sprout_sync.mapping import (
     convert_amount,
+    existing_key,
     plan_events,
     planned_key,
     resolve_target_unit,
@@ -88,13 +89,44 @@ def test_plan_bottle():
     assert planned_key(event) == ("feed", "BOTTLE")
 
 
-def test_plan_solids():
+def test_plan_solids_food_type():
     cfg = make_config()
     record = HbRecord(kind="solids", start=at(11, 0), payload={"foods": ["Rice", "Miso Soup"]})
     events = plan_events([record], cfg, resolved_unit="ML")
-    assert events[0].payload["feedType"] == "SOLIDS"
-    assert events[0].payload["food"] == "Rice, Miso Soup"
-    assert planned_key(events[0]) == ("feed", "SOLIDS")
+    event = events[0]
+    assert event.payload["type"] == "food"
+    assert event.payload["foods"] == ["Rice", "Miso Soup"]
+    assert planned_key(event) == ("food", "miso soup|rice")
+
+
+def test_plan_solids_empty_food_uses_generic_name():
+    cfg = make_config()
+    record = HbRecord(kind="solids", start=at(11, 0), payload={"foods": []})
+    events = plan_events([record], cfg, resolved_unit="ML")
+    event = events[0]
+    assert event.payload["foodName"] == "Solids"
+    assert "foods" not in event.payload
+    assert planned_key(event) == ("food", "solids")
+
+
+def test_plan_solids_single_food_and_dedup_keys():
+    cfg = make_config()
+    single = HbRecord(kind="solids", start=at(11, 0), payload={"foods": ["午前おやつ"]})
+    event = plan_events([single], cfg, resolved_unit="ML")[0]
+    assert event.payload["foods"] == ["午前おやつ"]
+    assert planned_key(event) == ("food", "午前おやつ")
+
+    existing = {
+        "activityType": "food",
+        "time": "2026-10-05T11:00:00.000+00:00",
+        "details": {
+            "foods": [
+                {"name": "Rice", "foodId": "a"},
+                {"name": "Miso Soup", "foodId": "b"},
+            ]
+        },
+    }
+    assert existing_key(existing) == ("food", "miso soup|rice")
 
 
 def test_plan_breast():

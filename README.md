@@ -23,7 +23,7 @@ it makes Huckleberry the source of truth that also feeds Sprout Track.
 | Huckleberry record | Sprout Track activity |
 | --- | --- |
 | bottle feed | `feed` (`formula`/`breast milk`/`milk`/`other`, amount + unit) |
-| solids feed | `feed` `SOLIDS` (foods joined into `food`, notes) |
+| solids feed | `food` (each of Huckleberry's `foods[]` as a proper food in the meal, notes); no foods → generic `Solids` |
 | breast feed | `feed` `BREAST` with duration (minutes), starts a timed feed |
 | sleep | `sleep` `log` (start time + duration; `NAP` or `NIGHT_SLEEP`) |
 | diaper | `diaper` `WET`/`DIRTY`/`BOTH`/`DRY` (+ condition/color) |
@@ -38,6 +38,12 @@ Sleep durations are rounded to whole minutes (the webhook API only accepts a
 `duration` in minutes and derives `endTime` from the `time` you send). Sleeps
 that *start* at or after `NIGHT_START_HOUR` (default 20:00) are typed
 `NIGHT_SLEEP`, earlier ones `NAP`.
+
+Solids use the `food` activity type (requires Sprout Track **≥ 1.6.8**): every
+food in Huckleberry's `foods[]` becomes a food in the meal, matched/created in
+the family's catalog by name (no more comma-joined single entries). The `food`
+type has no server-side deduplication, so dedup stays client-side like every
+other type.
 
 Medication doses are matched case-insensitively against the family's medicine
 reference (`GET /reference`); a dose whose name isn't configured is left out
@@ -142,7 +148,7 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `HUCKLEBERRY_EMAIL` | yes | — | Huckleberry login email (source) |
 | `HUCKLEBERRY_PASSWORD` | yes | — | Huckleberry login password |
 | `SPROUT_BASE_URL` | no | `https://sprout-track.example.com` | Sprout Track instance base URL |
-| `SPROUT_API_KEYS` | yes | — | One or more webhook keys (space/comma separated; `st_live_…`). Each has its own 30 writes/min budget; more keys = faster backfills |
+| `SPROUT_API_KEYS` | yes | — | One or more webhook keys (space/comma separated; `st_live_…`). Each has its own writes/min budget (default 30; the container's `HOOKS_RATE_LIMIT_WRITES_PER_MINUTE` can raise it); more keys = faster backfills |
 | `SPROUT_BABY_ID` | no | first baby | Baby to write; auto-resolved from `GET /babies` when unset |
 | `TZ` | no | `Asia/Tokyo` | Standard IANA timezone used for event timestamps and "today" |
 | `DRY_RUN` | no | `true` | Plan only; do not write to Sprout Track |
@@ -159,7 +165,7 @@ Set `DRY_RUN=false` (env or `-e`) once you want real writes.
 | `NIGHT_START_HOUR` | no | `20` | Sleeps starting at/after this hour are `NIGHT_SLEEP` |
 | `DEDUP_WINDOW_MINUTES` | no | `15` | Skip if matching Sprout Track activity exists within this window |
 | `DEDUP_SINCE_DAYS` | no | `7` | How far back to poll Sprout Track for dedup, relative to the earliest day |
-| `WRITE_DELAY_SECONDS` | no | `2.2` | Minimum pause between POSTs (30/min write rate limit) |
+| `WRITE_DELAY_SECONDS` | no | `2.2` | Minimum pause between POSTs. Keep in step with the container's `HOOKS_RATE_LIMIT_WRITES_PER_MINUTE` (per key, default 30): defaults → 2.2; 4× (120/min per key) → ~0.5 |
 | `APPRISE_URL` | no | — | Apprise webhook; posts a success/failure notification after each real sync |
 
 ## Disclaimer / risk

@@ -8,7 +8,9 @@ HuckleberryKind = Literal[
     "bottle", "solids", "breast", "sleep", "diaper", "activity", "bath", "temperature", "pump", "growth", "medication"
 ]
 
-SproutType = Literal["feed", "diaper", "sleep", "play", "bath", "note", "measurement", "pump", "medicine", "supplement"]
+SproutType = Literal[
+    "feed", "food", "diaper", "sleep", "play", "bath", "note", "measurement", "pump", "medicine", "supplement"
+]
 
 
 @dataclass(frozen=True)

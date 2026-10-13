@@ -135,14 +135,15 @@ async def _show_sprout_info(cfg) -> int:
 
 _KIND_ORDER = {
     "feed": 0,
-    "sleep": 1,
-    "diaper": 2,
-    "play": 3,
-    "bath": 4,
-    "measurement": 5,
-    "pump": 6,
-    "medicine": 7,
-    "supplement": 8,
+    "food": 1,
+    "sleep": 2,
+    "diaper": 3,
+    "play": 4,
+    "bath": 5,
+    "measurement": 6,
+    "pump": 7,
+    "medicine": 8,
+    "supplement": 9,
 }
 
 
