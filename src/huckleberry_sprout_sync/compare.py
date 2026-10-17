@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 from .config import Config
 from .hb_reader import HuckleberryReader
 from .mapping import plan_events, resolve_target_unit
-from .models import HbRecord
+from .models import HbRecord, PlannedEvent
 
 MOVE_WINDOW = timedelta(minutes=15)
 DUP_WINDOW = timedelta(minutes=5)
@@ -47,6 +47,20 @@ class Event:
 
     def ident(self) -> str:
         return f"{self.key[0]}/{self.key[1]}"
+
+
+@dataclass
+class SproutRow:
+    """A Sprout Track snapshot row plus what the write API needs to target it.
+
+    ``id`` is the original database row id (the webhook GET /activities path
+    cannot reach old rows, so edits must reference the snapshot id) and
+    ``activity_type`` is the webhook activity type the row belongs to.
+    """
+
+    event: Event
+    id: str
+    activity_type: str
 
 
 @dataclass
@@ -99,22 +113,47 @@ def load_sprout_reference(db_path: str) -> tuple[list[str], dict[str, dict]]:
     return units, medicines
 
 
-def load_sprout_events(db_path: str) -> list[Event]:
+def load_sprout_rows(db_path: str) -> list[SproutRow]:
+    """Load every non-deleted activity row from a Sprout Track snapshot.
+
+    Each row keeps the original database ``id`` and webhook activity type so a
+    reconcile can PUT edits back through /activities/:activityId. Times are
+    parsed from the snapshot exactly as :func:`load_sprout_events` does, so the
+    comparison input is identical.
+    """
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
     foods = {row["id"]: row["name"] for row in cur.execute("select id,name from Food")}
-    meds = {row["id"]: row["name"] for row in cur.execute("select id,name from Medicine")}
-    events: list[Event] = []
+    meds: dict[str, str] = {}
+    supplements: set[str] = set()
+    for row in cur.execute("select id,name,isSupplement from Medicine"):
+        meds[row["id"]] = row["name"]
+        if row["isSupplement"]:
+            supplements.add(row["id"])
+    rows: list[SproutRow] = []
 
-    def add(key: tuple[str, str], when: datetime | None, fields: dict) -> None:
+    def add(
+        key: tuple[str, str],
+        row_id: str,
+        when: datetime | None,
+        fields: dict,
+        activity_type: str | None = None,
+    ) -> None:
         if when is not None:
-            events.append(Event(key=key, time=when, fields=fields, origin="sprout"))
+            rows.append(
+                SproutRow(
+                    event=Event(key=key, time=when, fields=fields, origin="sprout"),
+                    id=row_id,
+                    activity_type=activity_type or key[0],
+                )
+            )
 
     for row in cur.execute("select * from FeedLog where deletedAt is null"):
         if row["type"] == "BREAST":
             add(
                 ("feed", "BREAST"),
+                row["id"],
                 _parse(row["startTime"]) or _parse(row["time"]),
                 {
                     "side": row["side"],
@@ -125,6 +164,7 @@ def load_sprout_events(db_path: str) -> list[Event]:
         else:
             add(
                 ("feed", "BOTTLE"),
+                row["id"],
                 _parse(row["time"]),
                 {
                     "bottle_type": _norm((row["bottleType"] or "").lower()) or None,
@@ -139,16 +179,18 @@ def load_sprout_events(db_path: str) -> list[Event]:
         names = [name for name in names if name]
         if not names and row["foodId"]:
             names = [foods.get(row["foodId"])]
-        add(("food", "food"), _parse(row["time"]), {"foods": frozenset(names), "notes": _norm(row["notes"])})
+        add(("food", "food"), row["id"], _parse(row["time"]), {"foods": frozenset(names), "notes": _norm(row["notes"])})
     for row in cur.execute("select * from SleepLog where deletedAt is null"):
         add(
             ("sleep", "sleep"),
+            row["id"],
             _parse(row["startTime"]),
             {"duration_min": row["duration"], "type": row["type"], "notes": _norm(row["notes"])},
         )
     for row in cur.execute("select * from DiaperLog where deletedAt is null"):
         add(
             ("diaper", "diaper"),
+            row["id"],
             _parse(row["time"]),
             {
                 "diaper_type": row["type"],
@@ -160,20 +202,28 @@ def load_sprout_events(db_path: str) -> list[Event]:
     for row in cur.execute("select * from PlayLog where deletedAt is null"):
         add(
             ("play", "play"),
+            row["id"],
             _parse(row["startTime"]),
             {"play_type": row["type"], "duration_min": row["duration"], "notes": _norm(row["notes"])},
         )
     for row in cur.execute("select * from BathLog where deletedAt is null"):
-        add(("bath", "bath"), _parse(row["time"]), {"bath_type": row["bathType"], "notes": _norm(row["notes"])})
+        add(
+            ("bath", "bath"),
+            row["id"],
+            _parse(row["time"]),
+            {"bath_type": row["bathType"], "notes": _norm(row["notes"])},
+        )
     for row in cur.execute("select * from Measurement where deletedAt is null"):
         add(
             ("measurement", row["type"]),
+            row["id"],
             _parse(row["date"]),
             {"value": _norm(row["value"]), "unit": _norm(row["unit"]), "notes": _norm(row["notes"])},
         )
     for row in cur.execute("select * from PumpLog where deletedAt is null"):
         add(
             ("pump", "pump"),
+            row["id"],
             _parse(row["startTime"]),
             {
                 "total": _norm(row["totalAmount"]),
@@ -187,6 +237,7 @@ def load_sprout_events(db_path: str) -> list[Event]:
     for row in cur.execute("select * from MedicineLog where deletedAt is null"):
         add(
             ("medicine", "medicine"),
+            row["id"],
             _parse(row["time"]),
             {
                 "name": _norm(meds.get(row["medicineId"])),
@@ -194,21 +245,36 @@ def load_sprout_events(db_path: str) -> list[Event]:
                 "unit": _norm(row["unitAbbr"]),
                 "notes": _norm(row["notes"]),
             },
+            activity_type="supplement" if row["medicineId"] in supplements else "medicine",
         )
     con.close()
-    return events
+    return rows
 
 
-def plan_hb_events(
-    records: list[HbRecord], cfg: Config, *, resolved_unit: str | None, medicines: dict[str, dict] | None = None
-) -> list[Event]:
-    out: list[Event] = []
-    for event in plan_events(records, cfg, resolved_unit=resolved_unit, medicines=medicines):
-        kind = event.kind
-        payload = event.payload
+def load_sprout_events(db_path: str) -> list[Event]:
+    """Planned-comparable events from a Sprout Track DB snapshot (see :func:`load_sprout_rows`)."""
+    return [row.event for row in load_sprout_rows(db_path)]
+
+
+def plan_hb_event_pairs(
+    records: list[HbRecord],
+    cfg: Config,
+    *,
+    resolved_unit: str | None,
+    medicines: dict[str, dict] | None = None,
+) -> list[tuple[Event, PlannedEvent]]:
+    """Planned Huckleberry events paired with their PlannedEvent write payload.
+
+    Keeps the webhook payload (needed to POST a missing event or PUT an edit)
+    attached to the comparison ``Event`` used by :func:`compare_events`.
+    """
+    out: list[tuple[Event, PlannedEvent]] = []
+    for planned in plan_events(records, cfg, resolved_unit=resolved_unit, medicines=medicines):
+        kind = planned.kind
+        payload = planned.payload
         key: tuple[str, str] | None = None
         fields: dict = {}
-        if event.sprout_type == "feed" and kind == "bottle":
+        if planned.sprout_type == "feed" and kind == "bottle":
             key = ("feed", "BOTTLE")
             fields = {
                 "bottle_type": _norm(FEEDTYPE_TO_BOTTLE.get(payload.get("feedType"), payload.get("feedType"))),
@@ -216,25 +282,25 @@ def plan_hb_events(
                 "unit": _norm(payload.get("unitAbbr")),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "feed" and kind == "breast":
+        elif planned.sprout_type == "feed" and kind == "breast":
             key = ("feed", "BREAST")
             fields = {
                 "side": payload.get("side"),
                 "duration_min": payload.get("duration"),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "food":
+        elif planned.sprout_type == "food":
             names = payload.get("foods") or ([payload.get("foodName")] if payload.get("foodName") else [])
             key = ("food", "food")
             fields = {"foods": frozenset(names), "notes": _norm(payload.get("notes"))}
-        elif event.sprout_type == "sleep":
+        elif planned.sprout_type == "sleep":
             key = ("sleep", "sleep")
             fields = {
                 "duration_min": payload.get("duration"),
                 "type": payload.get("sleepType"),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "diaper":
+        elif planned.sprout_type == "diaper":
             key = ("diaper", "diaper")
             fields = {
                 "diaper_type": payload.get("diaperType"),
@@ -242,24 +308,24 @@ def plan_hb_events(
                 "color": payload.get("color"),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "play":
+        elif planned.sprout_type == "play":
             key = ("play", "play")
             fields = {
                 "play_type": payload.get("playType"),
                 "duration_min": payload.get("duration"),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "bath":
+        elif planned.sprout_type == "bath":
             key = ("bath", "bath")
             fields = {"bath_type": payload.get("bathType"), "notes": _norm(payload.get("notes"))}
-        elif event.sprout_type == "measurement":
-            key = ("measurement", event.kind)
+        elif planned.sprout_type == "measurement":
+            key = ("measurement", planned.kind)
             fields = {
                 "value": _norm(payload.get("value")),
                 "unit": _norm(payload.get("unit")),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type == "pump":
+        elif planned.sprout_type == "pump":
             key = ("pump", "pump")
             fields = {
                 "total": _norm(payload.get("totalAmount")),
@@ -269,7 +335,7 @@ def plan_hb_events(
                 "duration_min": payload.get("duration"),
                 "notes": _norm(payload.get("notes")),
             }
-        elif event.sprout_type in {"medicine", "supplement"}:
+        elif planned.sprout_type in {"medicine", "supplement"}:
             key = ("medicine", "medicine")
             fields = {
                 "name": _norm(payload.get("medicineName") or payload.get("supplementName")),
@@ -278,8 +344,16 @@ def plan_hb_events(
                 "notes": _norm(payload.get("notes")),
             }
         if key is not None:
-            out.append(Event(key=key, time=event.time, fields=fields, origin="hb"))
+            out.append((Event(key=key, time=planned.time, fields=fields, origin="hb"), planned))
     return out
+
+
+def plan_hb_events(
+    records: list[HbRecord], cfg: Config, *, resolved_unit: str | None, medicines: dict[str, dict] | None = None
+) -> list[Event]:
+    return [
+        event for event, _planned in plan_hb_event_pairs(records, cfg, resolved_unit=resolved_unit, medicines=medicines)
+    ]
 
 
 def diff_fields(sprout_fields: dict, hb_fields: dict) -> list[str]:

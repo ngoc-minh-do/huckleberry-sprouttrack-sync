@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from collections import defaultdict
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
@@ -89,6 +90,27 @@ def _build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--start", type=lambda value: date.fromisoformat(value), default=None)
     compare.add_argument("--end", type=lambda value: date.fromisoformat(value), default=None)
     compare.add_argument("--child", default=None)
+
+    reconcile = subparsers.add_parser(
+        "reconcile",
+        help="POST only the events truly missing from a Sprout Track DB snapshot (dry run by default)",
+    )
+    reconcile.add_argument("--db", required=True, help="Path to a fresh Sprout Track baby-tracker.db snapshot")
+    reconcile.add_argument("--start", type=lambda value: date.fromisoformat(value), default=None)
+    reconcile.add_argument("--end", type=lambda value: date.fromisoformat(value), default=None)
+    reconcile.add_argument(
+        "--update-drift",
+        action="store_true",
+        help="With --no-dry-run, PUT rows whose fields differ from Huckleberry",
+    )
+    reconcile.add_argument(
+        "--update-moved",
+        action="store_true",
+        help="With --no-dry-run, PUT rows whose start time shifted",
+    )
+    reconcile.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
+    reconcile.add_argument("--no-dry-run", dest="dry_run", action="store_false")
+    reconcile.add_argument("--child", default=None)
     return parser
 
 
@@ -113,6 +135,9 @@ def main(argv: list[str] | None = None) -> int:
     if command == "compare":
         return asyncio.run(_run_compare(cfg, args))
 
+    if command == "reconcile":
+        return asyncio.run(_run_reconcile(cfg, args))
+
     target = args.date or cfg.local_today - timedelta(days=1)
     return asyncio.run(_run_sync_with_notify(cfg, args, command, target))
 
@@ -130,6 +155,26 @@ async def _run_compare(cfg, args) -> int:
     finally:
         await reader.close()
     print(format_report(result, cfg.timezone, start, end))
+    return 0
+
+
+async def _run_reconcile(cfg, args) -> int:
+    from .reconcile import reconcile
+
+    end = args.end or cfg.local_today - timedelta(days=1)
+    start = args.start or end - timedelta(days=550)
+    result = await reconcile(
+        cfg,
+        args.db,
+        start,
+        end,
+        dry_run=args.dry_run,
+        update_drift=args.update_drift,
+        update_moved=args.update_moved,
+        child=args.child,
+    )
+    print(_format_reconcile(cfg, result))
+    print(_reconcile_json(result))
     return 0
 
 
@@ -237,6 +282,68 @@ def _format_counts(counts: dict[str, int]) -> str:
     if not counts:
         return "records=0"
     return " ".join(f"{kind}={count}" for kind, count in sorted(counts.items()))
+
+
+def _format_reconcile(cfg, result) -> str:
+    mode = "DRY RUN" if result.dry_run else "WRITE"
+    lines = [
+        f"=== reconcile {result.start}..{result.end} ({cfg.timezone.key}) — {mode} ===",
+        (
+            f"HB planned={result.hb_total} sprout={result.sprout_total} matched={result.matched} "
+            f"drift={result.drift} moved={result.moved} near_dup={result.near_dup} "
+            f"truly_missing={result.truly_missing} sprout_only={result.sprout_only}"
+        ),
+    ]
+    if result.to_post:
+        by_day: dict[str, int] = defaultdict(int)
+        by_type: dict[str, int] = defaultdict(int)
+        for event in result.to_post:
+            by_day[f"{event.time.astimezone(cfg.timezone):%Y-%m-%d}"] += 1
+            by_type[event.sprout_type] += 1
+        lines.append("missing by day: " + ", ".join(f"{day}={count}" for day, count in sorted(by_day.items())))
+        lines.append("missing by type: " + ", ".join(f"{kind}={count}" for kind, count in sorted(by_type.items())))
+    put_lines: list[str] = []
+    if result.update_drift:
+        put_lines.append(f"drift={result.drift}")
+    if result.update_moved:
+        put_lines.append(f"moved={result.moved}")
+    lines.append("to PUT: " + (", ".join(put_lines) if put_lines else "0"))
+    if result.dry_run:
+        lines.append("(dry run — nothing written; use --no-dry-run to apply)")
+    else:
+        breakdown = ", ".join(f"{kind}={count}" for kind, count in sorted(result.written_by_type.items()))
+        updated = ", ".join(f"{kind}={count}" for kind, count in sorted(result.updated_by_type.items()))
+        lines.append(f"written={result.written} [{breakdown}]  updated={result.updated} [{updated}]")
+    return "\n".join(lines)
+
+
+def _reconcile_json(result) -> str:
+    import json
+
+    payload = {
+        "complete": 1,
+        "code": 0,
+        "command": "reconcile",
+        "start": result.start.isoformat(),
+        "end": result.end.isoformat(),
+        "dryRun": result.dry_run,
+        "snapshotDb": result.snapshot_db,
+        "hbTotal": result.hb_total,
+        "sproutTotal": result.sprout_total,
+        "matched": result.matched,
+        "drift": result.drift,
+        "moved": result.moved,
+        "nearDup": result.near_dup,
+        "trulyMissing": result.truly_missing,
+        "sproutOnly": result.sprout_only,
+        "updateDrift": result.update_drift,
+        "updateMoved": result.update_moved,
+        "written": result.written,
+        "updated": result.updated,
+        "writtenByType": dict(result.written_by_type),
+        "updatedByType": dict(result.updated_by_type),
+    }
+    return json.dumps(payload)
 
 
 def _result_json(command: str, result) -> str:

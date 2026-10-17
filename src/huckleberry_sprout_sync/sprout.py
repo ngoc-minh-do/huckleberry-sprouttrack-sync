@@ -135,18 +135,48 @@ class SproutClient:
             return None
 
     async def post_activity(self, baby_id: str, payload: dict) -> dict:
+        return await self._write("POST", f"{self._base}/babies/{baby_id}/activities", payload)
+
+    async def update_activity(self, baby_id: str, activity_id: str, payload: dict) -> dict:
+        """Edit an existing activity record (PUT /babies/:babyId/activities/:activityId).
+
+        ``payload`` must include ``type`` and only fields valid for that type;
+        unmapped fields keep their current values.
+        """
+        return await self._write("PUT", f"{self._base}/babies/{baby_id}/activities/{activity_id}", payload)
+
+    async def _write(self, method: str, url: str, payload: dict) -> dict:
         await self._throttle()
         for attempt in range(4):
-            async with self._session.post(
-                f"{self._base}/babies/{baby_id}/activities", headers=self._headers(), json=payload
-            ) as response:
+            async with self._session.request(method, url, headers=self._headers(), json=payload) as response:
                 if response.status == 429:
                     await self._wait_rate_limit(response, attempt)
                     continue
-                result = await self._raise_for_response(response, "POST")
-                _LOGGER.debug("POST activity ok: %s", payload)
+                result = await self._raise_for_response(response, method)
+                _LOGGER.debug("%s activity ok: %s", method, payload)
                 return result
-        raise SproutError("POST activity kept hitting the rate limit")
+        raise SproutError(f"{method} activity kept hitting the rate limit")
+
+    async def warm_up(self, *, timeout: float = 120.0, interval: float = 2.0) -> bool:
+        """Poll the app until it answers (Sablier on-demand containers 502 while cold).
+
+        Only the app root is touched, so no API key is needed. Returns True once
+        a response below 500 arrives, False if the timeout expires first.
+        """
+        url = f"{self.config.sprout_base_url}/"
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while True:
+            try:
+                async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status < 500:
+                        _LOGGER.info("Sprout Track is warm (HTTP %s)", response.status)
+                        return True
+            except TimeoutError, aiohttp.ClientError:
+                pass
+            if loop.time() >= deadline:
+                return False
+            await asyncio.sleep(interval)
 
     async def _throttle(self) -> None:
         loop = asyncio.get_event_loop()

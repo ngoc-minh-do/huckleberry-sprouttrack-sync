@@ -129,6 +129,27 @@ Sprout DB snapshot (JST times), reporting per type `matched` / `drift` (edited
 in Huckleberry after import) / `moved` (start or end shifted) / `near_dup` /
 `truly_missing` / `sprout_only`. It never writes to Sprout Track.
 
+### Reconcile a gap (compare-driven, safe re-run)
+
+`hb-st-sync reconcile --db <snapshot> [--start] [--end]` POSTs **only** the
+events `compare` classifies as truly missing — never a row the snapshot already
+has. That is the safe way to fill a partially-synced past day: `sync`/`backfill`
+re-plan a covered day and rely on the live-activity dedup window, which cannot
+enumerate old history (Sprout Track #290) and so risks duplicates (`food` has no
+server-side dedup at all). Reconcile is dry-run by default; add `--no-dry-run`
+to write, and `--update-drift` / `--update-moved` to also PUT in-place edits and
+time shifts back to Huckleberry's values.
+
+```bash
+uv run hb-st-sync reconcile --db baby-tracker.db --start 2026-10-08 --end 2026-10-16              # plan only
+uv run hb-st-sync reconcile --db baby-tracker.db --start 2026-10-08 --end 2026-10-16 --no-dry-run  # POST the gap
+```
+
+Always snapshot the live database right before a real run — after writes the
+snapshot is stale, and re-using it would re-POST the new rows. Writes are
+throttled and retried on 429 exactly like `sync`, and the instance is warmed up
+first if it is idle (Sablier on-demand).
+
 ## Docker
 
 Prefer not to manage a Python virtualenv? Run it as a container:
