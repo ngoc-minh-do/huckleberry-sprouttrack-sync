@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
@@ -159,23 +160,34 @@ async def _run_compare(cfg, args) -> int:
 
 
 async def _run_reconcile(cfg, args) -> int:
+    from .notify import ERROR_TITLE, OK_TITLE, AppriseNotifier
     from .reconcile import reconcile
 
+    notifier = AppriseNotifier(cfg.apprise_url)
     end = args.end or cfg.local_today - timedelta(days=1)
     start = args.start or end - timedelta(days=550)
-    result = await reconcile(
-        cfg,
-        args.db,
-        start,
-        end,
-        dry_run=args.dry_run,
-        update_drift=args.update_drift,
-        update_moved=args.update_moved,
-        child=args.child,
-    )
-    print(_format_reconcile(cfg, result))
-    print(_reconcile_json(result))
-    return 0
+    try:
+        result = await reconcile(
+            cfg,
+            args.db,
+            start,
+            end,
+            dry_run=args.dry_run,
+            update_drift=args.update_drift,
+            update_moved=args.update_moved,
+            child=args.child,
+        )
+        print(_format_reconcile(cfg, result))
+        print(_reconcile_json(result))
+        if not cfg.dry_run:
+            await notifier.send(title=OK_TITLE, body=_format_reconcile(cfg, result), message_type="success")
+        return 0
+    except Exception as exc:
+        # Under Dagu the DAG-level handler owns failure reporting (it sends the
+        # rich step+log message), so skip our own to avoid duplicate alerts.
+        if not cfg.dry_run and not os.environ.get("DAG_NAME"):
+            await notifier.send(title=ERROR_TITLE, body=f"{type(exc).__name__}: {exc}", message_type="failure")
+        raise
 
 
 async def _show_sprout_info(cfg) -> int:
@@ -245,7 +257,9 @@ async def _run_sync_with_notify(cfg, args, command: str, target: date) -> int:
             await notifier.send(title=title, body=body, message_type="success")
         return code
     except Exception as exc:
-        if not cfg.dry_run:
+        # Under Dagu the DAG-level handler owns failure reporting (it sends the
+        # rich step+log message), so skip our own to avoid duplicate alerts.
+        if not cfg.dry_run and not os.environ.get("DAG_NAME"):
             await notifier.send(title=ERROR_TITLE, body=f"{type(exc).__name__}: {exc}", message_type="failure")
         raise
 
