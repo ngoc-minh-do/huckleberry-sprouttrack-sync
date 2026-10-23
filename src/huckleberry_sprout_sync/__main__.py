@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
@@ -40,6 +39,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write to Sprout Track even if DRY_RUN is true in the environment",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--defer-failure-notify",
+        dest="defer_failure_notify",
+        action="store_true",
+        help="Skip this process's failure notification (a scheduler-level handler reports it)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
@@ -57,6 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Huckleberry child to sync (name or nickname token). Default: first child.",
     )
+    sync.add_argument("--defer-failure-notify", dest="defer_failure_notify", action="store_true")
 
     backfill = subparsers.add_parser(
         "backfill",
@@ -77,6 +83,7 @@ def _build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     backfill.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     backfill.add_argument("--child", default=None)
+    backfill.add_argument("--defer-failure-notify", dest="defer_failure_notify", action="store_true")
 
     subparsers.add_parser(
         "sprout-info",
@@ -112,6 +119,7 @@ def _build_parser() -> argparse.ArgumentParser:
     reconcile.add_argument("--dry-run", dest="dry_run", action="store_true", default=None)
     reconcile.add_argument("--no-dry-run", dest="dry_run", action="store_false")
     reconcile.add_argument("--child", default=None)
+    reconcile.add_argument("--defer-failure-notify", dest="defer_failure_notify", action="store_true")
     return parser
 
 
@@ -183,9 +191,9 @@ async def _run_reconcile(cfg, args) -> int:
             await notifier.send(title=OK_TITLE, body=_format_reconcile(cfg, result), message_type="success")
         return 0
     except Exception as exc:
-        # Under Dagu the DAG-level handler owns failure reporting (it sends the
-        # rich step+log message), so skip our own to avoid duplicate alerts.
-        if not cfg.dry_run and not os.environ.get("DAG_NAME"):
+        # A scheduler-level failure handler (--defer-failure-notify) already
+        # reports failures with step/log detail; don't duplicate it.
+        if not cfg.dry_run and not args.defer_failure_notify:
             await notifier.send(title=ERROR_TITLE, body=f"{type(exc).__name__}: {exc}", message_type="failure")
         raise
 
@@ -257,9 +265,9 @@ async def _run_sync_with_notify(cfg, args, command: str, target: date) -> int:
             await notifier.send(title=title, body=body, message_type="success")
         return code
     except Exception as exc:
-        # Under Dagu the DAG-level handler owns failure reporting (it sends the
-        # rich step+log message), so skip our own to avoid duplicate alerts.
-        if not cfg.dry_run and not os.environ.get("DAG_NAME"):
+        # A scheduler-level failure handler (--defer-failure-notify) already
+        # reports failures with step/log detail; don't duplicate it.
+        if not cfg.dry_run and not args.defer_failure_notify:
             await notifier.send(title=ERROR_TITLE, body=f"{type(exc).__name__}: {exc}", message_type="failure")
         raise
 
